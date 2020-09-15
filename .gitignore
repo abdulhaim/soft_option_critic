@@ -130,4 +130,4 @@ dmypy.json
 
 log_dir/
 **/.DS_Store
-
+.idea/
