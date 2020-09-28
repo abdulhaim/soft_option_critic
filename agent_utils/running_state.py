@@ -1,5 +1,7 @@
 
 import numpy as np
+
+
 # from https://github.com/joschu/modular_rl
 # http://www.johndcook.com/blog/standard_deviation/
 class RunningStat(object):

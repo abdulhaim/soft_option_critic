@@ -25,7 +25,7 @@ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/nvidia-384
 export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGLEW.so
 
 # Comment for using GPU
-export CUDA_VISIBLE_DEVICES=-1
+#export CUDA_VISIBLE_DEVICES=-1
 
 # Begin experiment
 cd $DIR

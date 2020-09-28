@@ -37,6 +37,17 @@ from datetime import datetime
 #     probs = F.softmax(values,dim=-1)
 #     selected = torch.multinomial(probs,num_samples=1)
 #     return selected, probs
+
+
+use_cuda = torch.cuda.is_available()
+
+if use_cuda:
+    torch.set_default_tensor_type('torch.cuda.FloatTensor')
+
+device = torch.device("cuda" if use_cuda else "cpu")
+torch.manual_seed(1)
+
+
 def softmax(values, temp=0.3):
     values = values / temp
     #import ipdb; ipdb.set_trace()
@@ -77,7 +88,7 @@ use_cuda = False #torch.cuda.is_available()
 if use_cuda:
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
 device = torch.device("cuda" if use_cuda else "cpu")
-from mpl_toolkits.mplot3d import Axes3D
+#from mpl_toolkits.mplot3d import Axes3D
 # import matplotlib.pyplot as plt
 
 # import matplotlib

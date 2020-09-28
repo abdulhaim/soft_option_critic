@@ -7,13 +7,19 @@ except:
     pass
 
 import torch.multiprocessing
-
 from agent_utils.models import *
 
 from torch.distributions import Normal
 import torch
 
 np.random.seed(1)
+torch.manual_seed(1)
+use_cuda = torch.cuda.is_available()
+
+if use_cuda:
+    torch.set_default_tensor_type('torch.cuda.FloatTensor')
+
+device = torch.device("cuda" if use_cuda else "cpu")
 torch.manual_seed(1)
 
 
@@ -260,23 +266,10 @@ class SoftOptionCritic(object):
 
         new_action = torch.max(torch.min(new_action, self.action_bound), -self.action_bound)
 
-        # target_Q1, target_Q2 = self.predict_critic_target(input, new_action)
-        #
-        # target_q = torch.min(target_Q1, target_Q2) - self.entropy_lr * log_prob
-        #
-        #
-        # predicted_v_i = self.value_func(input)
         enc_output, option_out, output_option_noise, dec_output, option_input_concat = self.option_net(input,
                                                                                                        new_action.detach(),
                                                                                                        mean.detach(),
                                                                                                        log_std.detach())
-        #
-        #
-        #
-        #
-        # Advantage = (target_q_value - predicted_v_value).detach()
-        # Weight = torch.exp(Advantage - torch.max(Advantage)) / sampling_prob.reshape(-1, 1)
-        # W_norm = Weight / torch.mean(Weight)
 
         batch_size = input.shape[0]
         dim = mean.shape[1]
@@ -302,17 +295,6 @@ class SoftOptionCritic(object):
                 kl_total = kl_left + kl_right
                 kl_cost = kl_cost + torch.sum(torch.pow(2 * latent_norm_2 - kl_total, 2))
                 assert (torch.all(torch.isnan(kl_cost)) == False)
-
-            # for idx in range(batch_size):
-            #
-            #     for jdx in range(idx+1,batch_size):
-            #         dist1 = Normal(mean[idx],std[idx])
-            #         dist2 =Normal(mean[batch_size-jdx],std[batch_size-jdx])
-            #         kl_left= torch.distributions.kl.kl_divergence(dist1,dist2)
-            #         kl_right =torch.distributions.kl.kl_divergence(dist2,dist1)
-            #         kl_total = kl_left+ kl_right
-            #         latent_norm_2 = torch.pow(torch.sum(torch.pow(enc_output[idx]-enc_output[jdx],2)),0.5)
-            #         kl_cost = kl_cost + torch.pow(2*latent_norm_2-kl_total,2)
 
         vat_loss = kl(option_out, output_option_noise)
         reg_loss = self.option_criterion(option_input_concat, dec_output)

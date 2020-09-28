@@ -4,7 +4,6 @@ from agent_utils.replay_buffer import *
 
 import torch
 torch.set_num_threads(8)
-print(torch.get_num_threads())
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal
@@ -14,7 +13,6 @@ np.random.seed(1)
 torch.manual_seed(1)
 
 use_cuda = torch.cuda.is_available()
-use_cuda = False
 if use_cuda:
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
 device = torch.device("cuda" if use_cuda else "cpu")
@@ -313,13 +311,14 @@ class StochasticOptionNetworkKMeans(nn.Module):
         return self.clusters.detach().cpu().numpy()
 
     def set_centers(self, centers):
-        print(centers.shape)
         self.cluster_set = True
         self.clusters = torch.tensor(centers, requires_grad=True)
 
     def forward(self, state, action, mean, log_std):
         input = torch.cat((state, mean), -1)
         input = torch.cat((input, log_std), -1)
+        input = tensor(input).to(device)
+
         x = F.relu(self.enc_linear1(input))
         x = F.relu(self.enc_linear2(x))
         enc_output = self.enc_linear3(x)
