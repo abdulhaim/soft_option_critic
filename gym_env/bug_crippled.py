@@ -20,7 +20,7 @@ class BugCrippledEnv(mujoco_env.MujocoEnv, utils.EzPickle):
                  reset_noise_scale=0.1,
                  exclude_current_positions_from_observation=True,
                  task='cripple',
-                 cripple_prob=1.0):
+                 cripple_prob=None):
 
         utils.EzPickle.__init__(**locals())
         self.cripple_mask = None
@@ -53,6 +53,10 @@ class BugCrippledEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         assert task in [None, 'cripple']
 
         self.task = task
+
+        if cripple_prob is None:
+            cripple_prob = [1.0, 1.0, 1.0]
+
         self.cripple_prob = cripple_prob
 
 
@@ -175,11 +179,23 @@ class BugCrippledEnv(mujoco_env.MujocoEnv, utils.EzPickle):
 
             # Pick which actuators to disable
             self.cripple_mask = np.ones(self.action_space.shape)
-            self.cripple_mask[2] = self.cripple_prob
-            self.cripple_mask[3] = self.cripple_prob
+            self.cripple_mask[2] = self.cripple_prob[0]
+            self.cripple_mask[3] = self.cripple_prob[0]
 
-            self.cripple_mask[4] = self.cripple_prob
-            self.cripple_mask[5] = self.cripple_prob
+            self.cripple_mask[4] = self.cripple_prob[0]
+            self.cripple_mask[5] = self.cripple_prob[0]
+
+            self.cripple_mask[6] = self.cripple_prob[1]
+            self.cripple_mask[7] = self.cripple_prob[1]
+
+            self.cripple_mask[8] = self.cripple_prob[1]
+            self.cripple_mask[9] = self.cripple_prob[1]
+
+            self.cripple_mask[10] = self.cripple_prob[2]
+            self.cripple_mask[11] = self.cripple_prob[2]
+
+            self.cripple_mask[0] = self.cripple_prob[2]
+            self.cripple_mask[1] = self.cripple_prob[2]
 
             # Make the removed leg look red
             geom_rgba = self._init_geom_rgba.copy()

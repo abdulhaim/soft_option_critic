@@ -524,11 +524,11 @@ class SoftOptionCritic(object):
 
         for option_idx in range(self.option_num):
             self.actor_net_list[option_idx].load_state_dict(
-                torch.load(self.model_dir + prefix + "-actor_net_" + str(option_idx)))
+                torch.load(self.model_dir + prefix + "-actor_net_" + str(option_idx),map_location=torch.device('cpu')))
             self.target_actor_net_list[option_idx].load_state_dict(
-                torch.load(self.model_dir + prefix + "-target_actor_net_" + str(option_idx)))
+                torch.load(self.model_dir + prefix + "-target_actor_net_" + str(option_idx),map_location=torch.device('cpu')))
 
-        self.critic_net.load_state_dict(torch.load(self.model_dir + prefix + "-critic_net"))
-        self.target_critic_net.load_state_dict(torch.load(self.model_dir + prefix + "-target_critic_net"))
+        self.critic_net.load_state_dict(torch.load(self.model_dir + prefix + "-critic_net", map_location=torch.device('cpu')))
+        self.target_critic_net.load_state_dict(torch.load(self.model_dir + prefix + "-target_critic_net", map_location=torch.device('cpu')))
 
-        self.option_net.load_state_dict(torch.load(self.model_dir + prefix + "-option_net"))
+        self.option_net.load_state_dict(torch.load(self.model_dir + prefix + "-option_net", map_location=torch.device('cpu')))

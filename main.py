@@ -8,6 +8,7 @@ from sklearn.cluster import KMeans
 import numpy as np
 from gym_env.bug_crippled import BugCrippledEnv
 from logger import Logger
+import random
 
 use_cuda = torch.cuda.is_available()
 
@@ -15,7 +16,6 @@ if use_cuda:
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
 device = torch.device("cuda" if use_cuda else "cpu")
-torch.manual_seed(1)
 
 
 def tensor(x):
@@ -108,7 +108,6 @@ def update_option(env, args, agent, replay_buffer_onpolicy, action_noise, update
     Weight = torch.exp(Advantage - torch.max(Advantage)) / p_batch.reshape(-1, 1)
     W_norm = Weight / (torch.mean(Weight) + 1e-20)  # TODO
 
-
     centers = agent.option_net.get_centers()
 
     flag = False
@@ -179,7 +178,6 @@ def update_policy(env, args, agent, replay_buffer, action_noise, update_num, log
         next_action = torch.max(torch.min(next_action, agent.action_bound), -agent.action_bound)
 
         target_Q1, target_Q2 = agent.predict_critic_target(next_state, next_action)
-
 
         target_q = torch.min(target_Q1, target_Q2).detach() - agent.entropy_lr * log_prob
 
@@ -279,110 +277,126 @@ def train(args, agent, env_test):
 
     option_list = []
     total_time = 0
-    while total_step_count in range(args.total_step_num):
-        state = tensor(agent.env.reset())
+    cripple_probs = [[1.0, 1.0, 1.0], [0.60, 1.0, 1.0], [0.20, 1.0, 1.0], [0.0, 1.0, 1.0],
+                     [1.0, 1.0, 1.0], [0.60, 1.0, 1.0], [0.20, 1.0, 1.0], [0.0, 1.0, 1.0]]
 
-        ep_reward = 0
-        episode_end = False
-        option = []
+    for task in range(8):
+        env = BugCrippledEnv(cripple_prob=cripple_probs[task])
 
-        for j in range(args.max_episode_len):
-            if args.render_env:
-                agent.env.render()
+        env.seed(args.random_seed)
+        for episode_num in range(200):
+            state = tensor(agent.env.reset())
 
-            # Warm up and select random action
-            if total_step_count < 1e3:
-                action = agent.env.action_space.sample()
-                action = action.reshape(1, -1)
-                mean = action
-                log_std = np.ones(mean.shape)
-                p = 1
-            else:  # Select action from Q Function
-                if j % args.temporal_num == 0 or not np.isscalar(option):
-                    state = tensor(state).to(device)
-                    option, _, Q_predict = agent.softmax_option_target(state.unsqueeze(0))
-                    option = option[0, 0]
+            ep_reward = 0
+            episode_end = False
+            option = []
 
-                option_list.append(option)
-                action, log_prob, mean, log_std = agent.predict_actor_option(state.unsqueeze(0), option)
+            for j in range(args.max_episode_len):
+                if args.render_env:
+                    agent.env.render()
 
-                noise = Normal(0, action_noise).sample(agent.env.action_space.shape)
-                noise = noise.detach().cpu()
-                p_noise = multivariate_normal.pdf(noise.detach().cpu(), np.zeros(shape=agent.env.action_space.shape[0]),
-                                                  action_noise * action_noise * torch.eye(noise.shape[0]).detach().cpu())
+                # Warm up and select random action
+                if total_step_count < 1e3:
+                    action = agent.env.action_space.sample()
+                    action = action.reshape(1, -1)
+                    mean = action
+                    log_std = np.ones(mean.shape)
+                    p = 1
+                else:  # Select action from Q Function
+                    if j % args.temporal_num == 0 or not np.isscalar(option):
+                        state = tensor(state).to(device)
+                        option, _, Q_predict = agent.softmax_option_target(state.unsqueeze(0))
+                        option = option[0, 0]
 
-                action = torch.max(torch.min(action, tensor(agent.env.action_space.high)),
-                                   tensor(agent.env.action_space.low))
+                    option_list.append(option)
+                    action, log_prob, mean, log_std = agent.predict_actor_option(state.unsqueeze(0), option)
 
-                p = (tensor(p_noise) * softmax(Q_predict.detach())[0][option]).cpu().numpy()
+                    noise = Normal(0, action_noise).sample(agent.env.action_space.shape)
+                    noise = noise.detach().cpu()
+                    p_noise = multivariate_normal.pdf(noise.detach().cpu(),
+                                                      np.zeros(shape=agent.env.action_space.shape[0]),
+                                                      action_noise * action_noise * torch.eye(
+                                                          noise.shape[0]).detach().cpu())
 
-                action = action.detach().cpu().numpy()
-                mean = mean.detach().cpu().numpy()
-                log_std = log_std.detach().cpu().numpy()
+                    action = torch.max(torch.min(action, tensor(agent.env.action_space.high)),
+                                       tensor(agent.env.action_space.low))
 
-            next_state, reward, terminal, info = agent.env.step(action[0])
+                    p = (tensor(p_noise) * softmax(Q_predict.detach())[0][option]).cpu().numpy()
 
-            next_state = tensor(next_state)
+                    action = action.detach().cpu().numpy()
+                    mean = mean.detach().cpu().numpy()
+                    log_std = log_std.detach().cpu().numpy()
 
-            replay_buffer.push(state.cpu().numpy(), action.squeeze(0), mean.squeeze(0), log_std.squeeze(0), reward,
-                               next_state.cpu().numpy(), terminal, p)
+                next_state, reward, terminal, info = agent.env.step(action[0])
 
-            replay_buffer_onpolicy.push(state.cpu().numpy(), action.squeeze(0), mean.squeeze(0), log_std.squeeze(0),
-                                        reward,
-                                        next_state.cpu().numpy(), terminal, p)
+                next_state = tensor(next_state)
 
-            if j == int(args.max_episode_len) - 1:
-                episode_end = True
+                replay_buffer.push(state.cpu().numpy(), action.squeeze(0), mean.squeeze(0), log_std.squeeze(0), reward,
+                                   next_state.cpu().numpy(), terminal, p)
 
-            state = next_state
-            ep_reward += reward
+                replay_buffer_onpolicy.push(state.cpu().numpy(), action.squeeze(0), mean.squeeze(0), log_std.squeeze(0),
+                                            reward,
+                                            next_state.cpu().numpy(), terminal, p)
 
-            total_step_count += 1
+                if j == int(args.max_episode_len) - 1:
+                    episode_end = True
 
-            if total_step_count >= int(args.save_model_num) * save_cnt:
-                model_path = "./Model/SoftOptionCritic/" + args.env_name + '/'
-                try:
-                    import pathlib
-                    pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
-                except:
-                    print("A model directory does not exist and cannot be created. The policy models are not saved")
+                state = next_state
+                ep_reward += reward
 
-                agent.save_weights(iteration=test_iter, expname=result_name, model_path=model_path)
-                agent.model_dir = model_path
-                agent.load_weights()
+                total_step_count += 1
 
-                save_cnt += 1
+                if total_step_count >= int(args.save_model_num) * save_cnt:
+                    model_path = "./Model/SoftOptionCritic/" + args.env_name + '/'
+                    try:
+                        import pathlib
+                        pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
+                    except:
+                        print("A model directory does not exist and cannot be created. The policy models are not saved")
 
-            if terminal or episode_end:
-                epi_cnt += 1
-                time_difference = time.time() - time0
-                total_time += time_difference
-                time0 = time.time()
-                logger.log_episode(total_step_count, ep_reward, total_time/60, option_list)
+                    agent.save_weights(iteration=test_iter, expname=result_name, model_path=model_path)
+                    agent.model_dir = model_path
+                    agent.load_weights()
 
-                print('| Reward: {:d} | Episode: {:d} | Total step num: {:d} |'.format(int(ep_reward), epi_cnt,
-                                                                                       total_step_count))
-                break
+                    save_cnt += 1
 
-        if total_step_count != args.total_step_num and total_step_count > 1e3 \
-                and total_step_count >= option_ite * args.option_batch_size == 0:
-            update_num = args.option_update_num
-            update_option(agent.env, args, agent, replay_buffer_onpolicy, action_noise, update_num, logger, total_step_count)
-            option_ite = option_ite + 1
-            replay_buffer_onpolicy.clear()
+                if terminal or episode_end:
+                    epi_cnt += 1
+                    time_difference = time.time() - time0
+                    total_time += time_difference
+                    time0 = time.time()
+                    logger.log_episode(total_step_count, ep_reward, total_time / 60, option_list)
 
-        if total_step_count != int(args.total_step_num) and total_step_count > 1e3:
-            update_num = total_step_count - trained_times_steps
-            trained_times_steps = total_step_count
-            update_policy(agent.env, args, agent, replay_buffer, action_noise, update_num, logger, total_step_count)
+                    print('| Reward: {:d} | Episode: {:d} | Total step num: {:d} |'.format(int(ep_reward), epi_cnt,
+                                                                                           total_step_count))
+                    break
+
+            if total_step_count != args.total_step_num and total_step_count > 1e3 \
+                    and total_step_count >= option_ite * args.option_batch_size == 0:
+                update_num = args.option_update_num
+                update_option(agent.env, args, agent, replay_buffer_onpolicy, action_noise, update_num, logger,
+                              total_step_count)
+                option_ite = option_ite + 1
+                replay_buffer_onpolicy.clear()
+
+            if total_step_count != int(args.total_step_num) and total_step_count > 1e3:
+                update_num = total_step_count - trained_times_steps
+                trained_times_steps = total_step_count
+                update_policy(agent.env, args, agent, replay_buffer, action_noise, update_num, logger, total_step_count)
+                
+        agent.save_weights(iteration=task, expname=result_name + "_task_" + str(task) + "model", model_path=model_path)
+
 
 def main(args):
     np.random.seed(args.random_seed)
+    random.seed(args.random_seed)
+    torch.manual_seed(args.random_seed)
+    torch.cuda.manual_seed(args.random_seed)
 
-    env = BugCrippledEnv(cripple_prob=1.0)
+    env = BugCrippledEnv()
     env.seed(args.random_seed)
 
-    env_test = BugCrippledEnv(cripple_prob=1.0)
+    env_test = BugCrippledEnv()
     env_test.seed(args.random_seed)
 
     state_dim = env.observation_space.shape[0]
@@ -405,6 +419,7 @@ def main(args):
                              vat_noise=args.vat_noise,
                              c_ent=args.c_ent)
 
+    agent.load_weights(prefix="SoftOptionCritic/BugCrippled-v3/BugCrippled-v3_2020-09-28-15-11-20")
     train(args, agent, env_test)
 
 
@@ -418,14 +433,15 @@ if __name__ == '__main__':
     parser.add_argument('--gamma', help='discount factor for critic updates', default=0.99)
     parser.add_argument('--tau', help='soft target update parameter', default=0.005)
     parser.add_argument('--buffer-size', help='max size of the replay buffer', default=1000000)
-    parser.add_argument('--hidden-dim', help='number of units in the hidden layers', default=(400, 300))  # 64 x 64, 400 x 300
+    parser.add_argument('--hidden-dim', help='number of units in the hidden layers',
+                        default=(400, 300))  # 64 x 64, 400 x 300
     parser.add_argument('--minibatch-size', help='size of minibatch for minibatch-SGD', default=100)
     parser.add_argument('--policy-minibatch-size', help='batch for updating policy', default=400)
 
     # Option Specific Parameters
     parser.add_argument('--option-batch-size', help='batch size for updating option', default=6000)  # keep as 1000
-    parser.add_argument('--option-update-num', help='iteration for updating option', default=4000) #1000
-    parser.add_argument('--option-minibatch-size', help='size of minibatch for minibatch-SGD', default=100) #100
+    parser.add_argument('--option-update-num', help='iteration for updating option', default=4000)  # 1000
+    parser.add_argument('--option-minibatch-size', help='size of minibatch for minibatch-SGD', default=100)  # 100
     parser.add_argument('--option-ite', help='batch size for updating policy', default=1)
     parser.add_argument('--option-num', help='number of options', default=4)
     parser.add_argument('--temporal-num', help='frequency of the gating policy selection', default=3)
@@ -433,7 +449,8 @@ if __name__ == '__main__':
     parser.add_argument('--hidden-dim_1', help='number of units in the hidden layers', type=int, default=300)  # 64 x 64
 
     # Episodes and Exploration Parameters
-    parser.add_argument('--total-step-num', help='total number of time steps', default=10000000)
+    parser.add_argument('--num_tasks', help='number of tasks', default=20)  # 0.1)
+    parser.add_argument('--total-step-num', help='total number of time steps', default=1000 * 200)
     parser.add_argument('--sample-step-num', help='number of time steps for recording the return', default=5000)
     parser.add_argument('--test-num', help='number of episode for recording the return', default=10)
     parser.add_argument('--action-noise', help='parameter of the noise for exploration', default=0.2)
@@ -451,7 +468,7 @@ if __name__ == '__main__':
 
     # Environment Parameters
     parser.add_argument('--env_name', help='name of env', type=str,
-                        default="BugCrippled-v-")
+                        default="BugCrippled-v3")
     parser.add_argument('--random-seed', help='random seed for repeatability', default=1234)
     parser.add_argument('--max-episode-len', help='max length of 1 episode', default=1000)
 
@@ -467,7 +484,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_model-num', help='number of time steps for saving the network models', default=50000)
     parser.add_argument('--log_dir', help='Log directory', type=str, default="log_dir")
 
-    parser.add_argument('--model_dir', help='Model directory', type=str, default="model/")
+    parser.add_argument('--model_dir', help='Model directory', type=str, default="Model/")
     parser.add_argument('--plot_dir', help='Model directory', type=str, default="plots/")
     parser.add_argument('--checkpoint_available', help='whether you can load a model', default=True)
     parser.set_defaults(render_env=False)
