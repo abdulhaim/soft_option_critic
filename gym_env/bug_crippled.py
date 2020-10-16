@@ -55,7 +55,6 @@ class BugCrippledEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         self.task = task
         self.cripple_prob = cripple_prob
 
-
     @property
     def healthy_reward(self):
         return float(

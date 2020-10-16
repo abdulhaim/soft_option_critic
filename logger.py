@@ -2,7 +2,7 @@ import logging
 import os
 import time
 import numpy as np
-from torch.utils.tensorboard import SummaryWriter
+from tensorboardX import SummaryWriter
 
 
 class Logger():
@@ -39,14 +39,5 @@ class Logger():
             self.total_options += 1
             self.writer.add_scalar(tag="option_lengths", scalar_value=option, global_step=self.total_options)
 
-    def log_data(self, tag_value, total_steps, kl_div_loss):
-        self.writer.add_scalar(tag=tag_value, scalar_value=kl_div_loss, global_step=total_steps)
-
-
-if __name__ == "__main__":
-    logger = Logger(logdir='runs/', run_name='test_model-test_env')
-    steps = 200;
-    reward = 5;
-    option_lengths = {opt: np.random.randint(0, 5, size=(5)) for opt in range(5)};
-    ep_steps = 50
-    logger.log_episode(steps, reward, option_lengths, ep_steps)
+    def log_data(self, tag_value, total_steps, value):
+        self.writer.add_scalar(tag=tag_value, scalar_value=value, global_step=total_steps)

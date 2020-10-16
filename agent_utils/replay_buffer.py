@@ -45,12 +45,12 @@ class ReplayBufferWeighted:
         self.buffer = []
         self.position = 0
 
-    def push(self, state, action, mean, log_std, reward, next_state, done, p):
+    def push(self, state, action, entropy, log_prob, reward, next_state, done, q_value, value, yt):
         if len(self.buffer) < self.capacity:
             self.buffer.append(None)
 
         self.buffer[self.position] = (
-            state, action, mean, log_std, reward, next_state, done, p)
+            state, action, entropy, log_prob, reward, next_state, done, q_value, value, yt)
         self.position = (self.position + 1) % self.capacity
 
     def sample(self, batch_size, flag=False):
@@ -58,10 +58,10 @@ class ReplayBufferWeighted:
         batch = random.sample(self.buffer, batch_size)
         if flag:
             batch = self.buffer[0:batch_size]
-        state, action, mean, log_std, reward, next_state, done, p = map(
-            np.stack, zip(*batch))
 
-        return state, action, mean, log_std, reward, next_state, done, p
+        state, action, entropy, log_prob, reward, next_state, done, q_value, value, yt = zip(*batch)
+
+        return state, action, entropy, log_prob, reward, next_state, done, q_value, value, yt
 
     def clear(self):
         del self.buffer
