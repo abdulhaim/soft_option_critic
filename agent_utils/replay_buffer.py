@@ -1,16 +1,17 @@
 import torch
 import numpy as np
 
+
 def combined_shape(length, shape=None):
     if shape is None:
         return (length,)
     return (length, shape) if np.isscalar(shape) else (length, *shape)
 
-class ReplayBufferSOC:
+
+class ReplayBufferSOC(object):
     """
     A simple FIFO experience replay buffer for SAC agents.
     """
-
     def __init__(self, obs_dim, act_dim, option_num, size):
         self.state_buf = np.zeros(combined_shape(size, obs_dim), dtype=np.float32)
         self.option_buf = np.zeros(combined_shape(size, option_num), dtype=np.float32)
@@ -32,19 +33,21 @@ class ReplayBufferSOC:
 
     def sample_batch(self, batch_size=32):
         idxs = np.random.randint(0, self.size, size=batch_size)
-        batch = dict(state=self.state_buf[idxs],
-                     option=self.option_buf[idxs],
-                     action=self.action_buf[idxs],
-                     reward=self.reward_buf[idxs],
-                     next_state=self.next_state_buf[idxs],
-                     done=self.done_buf[idxs])
+        batch = dict(
+            state=self.state_buf[idxs],
+            option=self.option_buf[idxs],
+            action=self.action_buf[idxs],
+            reward=self.reward_buf[idxs],
+            next_state=self.next_state_buf[idxs],
+            done=self.done_buf[idxs])
         return {k: torch.as_tensor(v, dtype=torch.float32) for k, v in batch.items()}
 
-class ReplayBufferSAC:
+
+class ReplayBufferSAC(object):
     """
     A simple FIFO experience replay buffer for SAC agents.
+    TODO: Change obs2 to next_obs
     """
-
     def __init__(self, obs_dim, act_dim, size):
         self.obs_buf = np.zeros(combined_shape(size, obs_dim), dtype=np.float32)
         self.obs2_buf = np.zeros(combined_shape(size, obs_dim), dtype=np.float32)
@@ -64,9 +67,10 @@ class ReplayBufferSAC:
 
     def sample_batch(self, batch_size=32):
         idxs = np.random.randint(0, self.size, size=batch_size)
-        batch = dict(obs=self.obs_buf[idxs],
-                     obs2=self.obs2_buf[idxs],
-                     act=self.act_buf[idxs],
-                     rew=self.rew_buf[idxs],
-                     done=self.done_buf[idxs])
+        batch = dict(
+            obs=self.obs_buf[idxs],
+            obs2=self.obs2_buf[idxs],
+            act=self.act_buf[idxs],
+            rew=self.rew_buf[idxs],
+            done=self.done_buf[idxs])
         return {k: torch.as_tensor(v, dtype=torch.float32) for k, v in batch.items()}

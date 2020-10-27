@@ -3,25 +3,23 @@ import time
 import torch
 import argparse
 import pathlib
-import itertools
-
-from agent_utils.agent import *
+import numpy as np
 from gym_env.bug_crippled import BugCrippledEnv
 from logger import Logger
 from torch.autograd import Variable
 from agent_utils.utils import *
-from agent_utils.replay_buffer import *
 
 # Setting CUDA USE
 use_cuda = torch.cuda.is_available()
 if use_cuda:
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
 device = torch.device("cuda" if use_cuda else "cpu")
-
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+torch.set_num_threads(3)
 
 
 def tensor(x):
+    # TODO move to misc/torch_utils.py
     if isinstance(x, torch.Tensor):
         return x.to(device).float()
     x = torch.tensor(x, device=device)
@@ -36,6 +34,7 @@ def train(args, agent, env, replay_buffer):
     ep_len = 0
     total_step_count = 0
 
+    # TODO Try to put defs below to difference place
     # Set up function for computing SAC Q-losses
     def compute_loss_q(data):
         o, a, r, o2, d = data['obs'], data['act'], data['rew'], data['obs2'], data['done']
@@ -86,7 +85,7 @@ def train(args, agent, env, replay_buffer):
         for p in agent.q_params:
             p.requires_grad = False
 
-        # Next run one gradient descent step for pi.
+        # Next run one gradient descent step for pi
         agent.pi_optimizer.zero_grad()
         loss_pi = compute_loss_pi(data)
         loss_pi.backward()
@@ -105,10 +104,11 @@ def train(args, agent, env, replay_buffer):
                 p_targ.data.add_((1 - args.polyak) * p.data)
 
     def compute_intra_loss(data, inter_q_target_next_option, inter_q_target_current_option, inter_logp_next_option):
-        state, option, action, reward, next_state, done = data['state'], data['option'], data['action'], data['reward'], \
-                                                          data['next_state'], data['done']
+        state, option, action, reward, next_state, done = \
+            data['state'], data['option'], data['action'], data['reward'], data['next_state'], data['done']
         q1 = agent.intra_q_function_1(torch.cat([state, action, option], dim=-1))
         q2 = agent.intra_q_function_2(torch.cat([state, action, option], dim=-1))
+        # TODO Use done
 
         # Bellman backup for Q functions
         with torch.no_grad():
@@ -124,7 +124,7 @@ def train(args, agent, env, replay_buffer):
 
                 next_state_element = next_state[index]
                 one_hot_option = tensor(one_hot_option)
-                pi_action, logp = agent.intra_option_policies[option_index](torch.cat([next_state_element, one_hot_option], dim=-1))
+                pi_action, logp = agent.intra_option_policies[option_index](next_state_element)
                 beta_prob_element = agent.beta_list[option_index](next_state_element)
                 next_action.append(pi_action)
                 logp_next_action.append(logp)
@@ -136,10 +136,10 @@ def train(args, agent, env, replay_buffer):
 
             # Computing Q-losses
             backup = reward + args.gamma * (((1 - beta_prob) * inter_q_target_current_option) + (
-                        beta_prob * (inter_q_target_next_option - args.alpha * inter_logp_next_option)))
+                beta_prob * (inter_q_target_next_option - args.alpha * inter_logp_next_option)))
 
             advantage = inter_q_target_current_option - (
-                        inter_q_target_next_option - args.alpha * inter_logp_next_option)
+                inter_q_target_next_option - args.alpha * inter_logp_next_option)
             loss_beta = (Variable(beta_prob, requires_grad=True) * Variable(advantage, requires_grad=True)).mean()
 
         # MSE loss against Bellman backup
@@ -154,25 +154,28 @@ def train(args, agent, env, replay_buffer):
         return loss_q, loss_pi, loss_beta
 
     def compute_inter_loss(data):
-        state, option, action, reward, next_state, done = data['state'], data['option'], data['action'], data['reward'], \
-                                                          data['next_state'], data['done']
+        state, option, action, reward, next_state, done = \
+            data['state'], data['option'], data['action'], data['reward'], data['next_state'], data['done']
         q1 = agent.inter_q_function_1(torch.cat([state, option], dim=-1))
         q2 = agent.inter_q_function_2(torch.cat([state, option], dim=-1))
 
         # Bellman backup for Q functions
         with torch.no_grad():
             # Target actions come from *current* policy
-            next_option, logp_next_option = agent.inter_option_policy(next_state)
+            action, _ = agent.inter_option_policy(next_state)
+            # TODO No next state no next option ... etc
 
-            # Target Q-values
-            q1_pi_targ_next_option = agent.inter_q_function_1_targ(torch.cat([next_state, next_option], dim=-1))
-            q2_pi_targ_next_option = agent.inter_q_function_2_targ(torch.cat([next_state, next_option], dim=-1))
-            q_pi_targ_next_option = torch.min(q1_pi_targ_next_option, q2_pi_targ_next_option)
-            backup = (q_pi_targ_next_option - args.alpha * logp_next_option)
+            # # Target intra Q-values
+            # q1_intra_q = agent.intra_q(state, option, kkk
 
-            q1_pi_targ_current_option = agent.inter_q_function_1_targ(torch.cat([next_state, option], dim=-1))
-            q2_pi_targ_current_option = agent.inter_q_function_2_targ(torch.cat([next_state, option], dim=-1))
-            q_pi_targ_current_option = torch.min(q1_pi_targ_current_option, q2_pi_targ_current_option)
+            # q1_pi_targ_next_option = agent.inter_q_function_1_targ(torch.cat([next_state, next_option], dim=-1))
+            # q2_pi_targ_next_option = agent.inter_q_function_2_targ(torch.cat([next_state, next_option], dim=-1))
+            # q_pi_targ_next_option = torch.min(q1_pi_targ_next_option, q2_pi_targ_next_option)
+            # backup = (q_pi_targ_next_option - args.alpha * logp_next_option)
+
+            # q1_pi_targ_current_option = agent.inter_q_function_1_targ(torch.cat([next_state, option], dim=-1))
+            # q2_pi_targ_current_option = agent.inter_q_function_2_targ(torch.cat([next_state, option], dim=-1))
+            # q_pi_targ_current_option = torch.min(q1_pi_targ_current_option, q2_pi_targ_current_option)
 
         # MSE loss against Bellman backup
         loss_q1 = ((q1 - backup) ** 2).mean()
@@ -180,6 +183,7 @@ def train(args, agent, env, replay_buffer):
         loss_q = loss_q1 + loss_q2
 
         # Entropy-regularized policy loss
+        # TODO Remove inter-policy loss
         q_pi = torch.min(q1, q2)
         loss_pi = (args.alpha * logp_next_option - q_pi).mean()
 
@@ -188,8 +192,8 @@ def train(args, agent, env, replay_buffer):
     def update_loss_soc(data):
         # One gradient step for inter-q function and inter-policy
         agent.inter_q_function_optim.zero_grad()
-        loss_inter_q, loss_inter_pi, q_pi_targ_next_option, q_pi_targ_current_option, logp_next_option = compute_inter_loss(
-            data)
+        loss_inter_q, loss_inter_pi, q_pi_targ_next_option, q_pi_targ_current_option, logp_next_option = \
+            compute_inter_loss(data)
 
         # One gradient step for intra-q function and intra-policy
         agent.intra_q_function_optim.zero_grad()
@@ -269,40 +273,57 @@ def train(args, agent, env, replay_buffer):
                 p_targ.data.mul_(args.polyak)
                 p_targ.data.add_((1 - args.polyak) * p.data)
 
-    def get_option(state):
-        option, logp_next_option = agent.inter_option_policy(state)
+    def get_option(state, option=None):
+        """
+            TODO Soft epsilon get option
+            Output: Either onehot or index
+
+            epsilon = random.rand.rand() 
+            if epsilon < bar:
+                Select option randomly
+            else:
+                Q-option values = agent.inter_Q(state)
+                max(Q_option_values)
+            output = either onehot or index
+        """
+        # Get another one or not?
+        # If it is, then soft epsilon
+        # If not, then return the same option
+        option, logp_option = agent.inter_option_policy(state)
         return option
 
-    def get_action_option(option_index, one_hot_option, state):
-        return agent.intra_option_policies[option_index](torch.cat([state, one_hot_option], dim=-1))
+    def get_action_option(option_index, state):
+        return agent.intra_option_policies[option_index](state)
 
     def get_action(state):
         return agent.policy(state)
 
     state = tensor(env.reset())
-    while total_step_count in range(args.total_step_num):
+
+    for total_step_count in range(args.total_step_num):
         # Until start_steps have elapsed, randomly sample actions
         # from a uniform distribution for better exploration. Afterwards,
         # use the learned policy.
         if args.model_type == "SOC":
-            option = get_option(state)
+            option = get_option(state)  # 4-value: probabilties
             option_index = np.argmax(option.detach().numpy())
-            one_hot_option = np.zeros(args.option_num)
-            one_hot_option[option_index] = 1
+            # one_hot_option = np.zeros(args.option_num)
+            # one_hot_option[option_index] = 1
 
             if total_step_count > args.update_after:
-                action = get_action_option(option_index, tensor(one_hot_option), state)[0].detach().numpy()
+                action = get_action_option(option_index, state)[0].detach().numpy()
             else:
-                action = env.action_space.sample()
+                action = env.action_space.sample()  # Uniform random sampling from action space for exploration
         else:
             if total_step_count > args.update_after:
-                action = get_action(state)
+                action, _ = get_action(state)
             else:
-                action = env.action_space.sample()
+                action = env.action_space.sample()  # Uniform random sampling from action space for exploration
 
         next_state, reward, done, _ = env.step(action)
         ep_reward += reward
         ep_len += 1
+
         # Ignore the "done" signal if it comes from hitting the time
         # horizon (that is, when it's an artificial terminal signal
         # that isn't based on the agent's state)
@@ -310,15 +331,19 @@ def train(args, agent, env, replay_buffer):
 
         # Store experience to replay buffer
         if args.model_type == "SOC":
+            # TODO Potentially consider saving term in replay buffer
             replay_buffer.store(state, option.detach().numpy(), action, reward, next_state, d)
-
             term_prob = agent.beta_list[option_index](state)
-            if term_prob == 1:
+            distribution = benroulli(1. - term_prob)
+            term = distribution.sample()
+            if term == 1:
                 option = get_option(next_state)
         else:
             replay_buffer.store(state, action, reward, next_state, d)
 
+        # For next timestep
         state = torch.tensor(next_state).float()
+
         # End of trajectory handling
         if d or (ep_len == args.max_episode_len):
             log[args.log_name].info("Returns: {:.3f} at iteration {}".format(ep_reward, total_step_count))
@@ -334,8 +359,7 @@ def train(args, agent, env, replay_buffer):
                 else:
                     update_loss_sac(data=batch)
 
-        total_step_count += 1
-
+        # Save model
         if total_step_count % args.save_model_every == 0:
             model_path = "./Model/" + args.model_type + "/" + args.env_name + '/'
             pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
@@ -343,6 +367,8 @@ def train(args, agent, env, replay_buffer):
 
 
 def main(args):
+    # Set directory
+    # TODO Either logs or log_dir
     if not os.path.exists("./logs"):
         os.makedirs("./logs")
     if not os.path.exists("./pytorch_models"):
@@ -350,32 +376,36 @@ def main(args):
     if not os.path.exists("./log_dir"):
         os.makedirs("./log_dir")
 
+    # Set seed
+    # TODO random.seed
     np.random.seed(args.random_seed)
     torch.manual_seed(args.random_seed)
 
+    # Set env
     env = BugCrippledEnv(cripple_prob=1.0)
     env.seed(args.random_seed)
 
     env_test = BugCrippledEnv(cripple_prob=1.0)
     env_test.seed(args.random_seed)
-    torch.set_num_threads(3)
 
+    # Set either SOC or SAC
     if args.model_type == "SOC":
-        agent = SoftOptionCritic(observation_space=env.observation_space,
-                                 action_space=env.action_space,
-                                 option_num=args.option_num,
-                                 hidden_size=args.hidden_dim,
-                                 lr=args.lr)
-        replay_buffer = ReplayBufferSOC(obs_dim=agent.obs_dim, act_dim=agent.action_dim, option_num=args.option_num,
-                                     size=args.buffer_size)
+        from agent_utils.soc import SoftOptionCritic
+        from agent_utils.replay_buffer import ReplayBufferSOC
+        agent = SoftOptionCritic(
+            observation_space=env.observation_space,
+            action_space=env.action_space,
+            args=args)
+        replay_buffer = ReplayBufferSOC(
+            obs_dim=agent.obs_dim, act_dim=agent.action_dim, option_num=args.option_num, size=args.buffer_size)
     else:
-        agent = SoftActorCritic(observation_space=env.observation_space,
-                                action_space=env.action_space,
-                                hidden_size=args.hidden_dim,
-                                lr=args.lr)
-
+        from agent_utils.sac import SoftActorCritic
+        from agent_utils.replay_buffer import ReplayBufferSAC
+        agent = SoftActorCritic(
+            observation_space=env.observation_space,
+            action_space=env.action_space,
+            args=args)
         replay_buffer = ReplayBufferSAC(obs_dim=agent.obs_dim, act_dim=agent.action_dim, size=args.buffer_size)
-
 
     train(args, agent, env, replay_buffer)
 
@@ -392,6 +422,7 @@ if __name__ == '__main__':
     parser.add_argument('--epsilon', help='epsilon for policy over options', type=float, default=0.15)
 
     parser.add_argument('--buffer-size', help='max size of the replay buffer', default=1000000)
+    # TODO Either hidden size or hidden dim
     parser.add_argument('--hidden-dim', help='number of units in the hidden layers', default=64)
     parser.add_argument('--batch-size', help='size of minibatch for minibatch-SGD', default=100)
 

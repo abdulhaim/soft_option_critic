@@ -42,7 +42,6 @@ class QFunction(torch.nn.Module):
     Input: state, option
     Output: 1
     """
-
     def __init__(self, num_state, num_actions, hidden_size):
         super(QFunction, self).__init__()
         self.module_list = nn.ModuleList()
@@ -75,7 +74,6 @@ class InterQFunction(torch.nn.Module):
     Input: state, option
     Output: 1
     """
-
     def __init__(self, num_state, num_options, hidden_size):
         super(InterQFunction, self).__init__()
         self.module_list = nn.ModuleList()
@@ -108,7 +106,6 @@ class IntraQFunction(torch.nn.Module):
     Input: state, option, action
     Output: 1
     """
-
     def __init__(self, num_state, num_actions, num_options, hidden_size):
         super(IntraQFunction, self).__init__()
         self.module_list = nn.ModuleList()
@@ -170,12 +167,12 @@ class Policy(torch.nn.Module):
         scale = torch.exp(torch.clamp(std, min=self.min_log_std))
 
         pi_distribution = Normal(loc=mu, scale=scale)
-        pi_action = pi_distribution.rsample()
+        pi_action = pi_distribution.rsample()  # NOTE Needed for reparameterization
         logp_pi = pi_distribution.log_prob(pi_action).sum(axis=-1)
         logp_pi -= (2 * (np.log(2) - pi_action - F.softplus(-2 * pi_action))).sum(axis=-1)
 
         pi_action = torch.tanh(pi_action)
-        pi_action = self.num_actions * pi_action
+        pi_action = self.num_actions * pi_action  # TODO self.num_actions is wrong multiply by action space lim
 
         return pi_action, logp_pi
 
@@ -186,9 +183,9 @@ class InterOptionPolicy(torch.nn.Module):
     Input: state
     Output: number of actions
     """
-
     def __init__(self, num_state, num_options, hidden_size):
         super(InterOptionPolicy, self).__init__()
+        raise ValueError("I would not have inter-option policy")
         self.module_list = nn.ModuleList()
         self.layer1 = nn.Linear(num_state, hidden_size)
         self.module_list += [self.layer1]
@@ -196,12 +193,9 @@ class InterOptionPolicy(torch.nn.Module):
         self.layer2 = nn.Linear(hidden_size, hidden_size)
         self.module_list += [self.layer2]
         self.nonlin2 = nn.ReLU()
-        self.layer3_mu = nn.Linear(hidden_size, num_options)
-        self.layer3_std = nn.Linear(hidden_size, num_options)
-        self.min_log_std = math.log(1e-6)
+        self.layer3 = nn.Linear(hidden_size, num_options)
 
-        self.module_list += [self.layer3_mu]
-        self.module_list += [self.layer3_std]
+        self.module_list += [self.layer3]
 
         self.num_options = num_options
         self.apply(weights_init)
@@ -210,12 +204,11 @@ class InterOptionPolicy(torch.nn.Module):
     def forward(self, inputs):
         x = self.nonlin1(self.layer1(inputs))
         x = self.nonlin2(self.layer2(x))
-        mu = self.layer3_mu(x)
-        std = self.layer3_std(x)
-        scale = torch.exp(torch.clamp(std, min=self.min_log_std))
+        x = F.softmax(self.layer3(x), dim=1)
+        raise ValueError("Categorical distribution instead of normal distribution")
 
-        pi_distribution = Normal(loc=mu, scale=scale)
-        pi_option = pi_distribution.rsample()
+        pi_distribution = Categorical(probs=x)
+        pi_option = pi_distribution.rsample()  # TODO Make sure sample or rsample
         logp_pi = pi_distribution.log_prob(pi_option).sum(axis=-1)
         logp_pi -= (2 * (np.log(2) - pi_option - F.softplus(-2 * pi_option))).sum(axis=-1)
 
@@ -234,6 +227,7 @@ class IntraOptionPolicy(torch.nn.Module):
 
     def __init__(self, num_state, num_option, num_actions, hidden_size):
         super(IntraOptionPolicy, self).__init__()
+        raise ValueError("No option as input")
         self.module_list = nn.ModuleList()
         self.layer1 = nn.Linear(num_state + num_option, hidden_size)
         self.module_list += [self.layer1]
