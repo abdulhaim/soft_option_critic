@@ -10,7 +10,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Virtualenv
 cd $DIR
-sudo virtualenv venv
+virtualenv venv
 source venv/bin/activate
 pip3 install -r requirements.txt
 

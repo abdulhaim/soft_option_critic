@@ -3,14 +3,14 @@ import time
 import torch
 import argparse
 import pathlib
+import itertools
 
 from agent_utils.agent import *
 from gym_env.bug_crippled import BugCrippledEnv
 from logger import Logger
 from torch.autograd import Variable
-from torch.nn import functional as F
 from agent_utils.utils import *
-from agent_utils.replay_buffer import ReplayBufferWeighted
+from agent_utils.replay_buffer import *
 
 # Setting CUDA USE
 use_cuda = torch.cuda.is_available()
@@ -28,169 +28,318 @@ def tensor(x):
     return x.to(device).float()
 
 
-def update_policy(args, agent, replay_buffer, update_num,
-                  logger, total_step_count):
-    for ite in range(update_num):
-        state, action, entropy, log_prob, reward, \
-        next_state, done, q_value, \
-        value, term_prob = replay_buffer.sample(args.minibatch_size)
-
-        agent.optimizer.zero_grad()
-
-        R = np.array(value).data
-        difference = R - np.array(q_value)
-
-        value_loss = 0.5 * np.power(difference, 2)
-        policy_loss = np.array(log_prob) * difference.data - \
-                      args.entropy_coeff * np.array(entropy)
-
-        advantage = np.array(q_value) - R
-
-        np_term = np.array(term_prob)
-        phi_loss = np_term * advantage
-
-        agent.actor_critic.zero_grad()
-        total_loss = phi_loss.sum() + policy_loss.sum() + \
-                     0.5 * value_loss.sum()
-
-        total_loss.backward(retain_graph=True)
-
-        agent.optimizer.step()
-
-        logger.log_data("total_loss", total_step_count, total_loss.detach())
-        logger.log_data("phi_loss", total_step_count, phi_loss.sum().detach())
-        logger.log_data("policy_loss", total_step_count, phi_loss.sum().detach())
-        logger.log_data("value_loss", total_step_count, phi_loss.sum().detach())
-
-
-def evaluate_deterministic_policy(agent, args, test_iter, env_test, log):
-    for nn in range(int(agent.test_num)):
-
-        state_test = env_test.reset()
-        state_test = tensor(state_test).unsqueeze(0)
-        return_epi_test = 0
-        for t_test in range(int(agent.max_episode_len)):
-            q, hidden = agent.actor_critic(Variable(state_test.unsqueeze(0)))
-            option = agent.esoft(q, args.epsilon)
-            yt = agent.actor_critic.getTermination(hidden, option)
-
-            term = yt.bernoulli()
-            termination_condition = term.data[0][0]
-            if termination_condition:
-                option = agent.esoft(q, args.epsilon)
-
-            logit = agent.actor_critic.getAction(hidden, option)
-
-            prob = F.softmax(logit, dim=1)
-            action = prob.multinomial(1).data
-
-            next_state, reward, terminal, info = agent.env.step(action.cpu().numpy()[0][0])
-            return_epi_test += reward
-
-            if terminal:
-                break
-
-        log[args.log_name].info("Test Returns: {:.3f} at iteration {}".format(return_epi_test, test_iter))
-
-
-def train(args, agent, env_test):
-    replay_buffer = ReplayBufferWeighted(args.buffer_size)
-    replay_buffer_onpolicy = ReplayBufferWeighted(args.buffer_size)
+def train(args, agent, env, replay_buffer):
     log = set_log(args)
-
     logger = Logger(logdir=args.log_dir, run_name=args.env_name + time.ctime())
 
-    # Used to safe weights of the model
-    result_name = 'SoftOptionCritic' + args.env_name \
-                  + '_lambda_' + str(args.entropy_coeff) \
-                  + '_c_reg_' + str(args.c_reg) \
-                  + '_vat_noise_' + str(args.vat_noise) \
-                  + '_c_ent_' + str(args.c_ent) \
-                  + '_option_' + str(args.option_num) \
-                  + '_temporal_' + str(args.temporal_num) \
-                  + '_trial_idx_' + str(args.trial_idx)
-
+    ep_reward = 0
+    ep_len = 0
     total_step_count = 0
-    test_iter = 0
-    epi_cnt = 0
-    trained_times_steps = 0
-    save_cnt = 1
-    option_ite = 0
-    ep_ret = 0
-    option_list = []
-    total_time = 0
 
-    previous_time = time.time()
+    # Set up function for computing SAC Q-losses
+    def compute_loss_q(data):
+        o, a, r, o2, d = data['obs'], data['act'], data['rew'], data['obs2'], data['done']
+
+        q1 = agent.q_function_1(torch.cat([o, a], dim=-1))
+        q2 = agent.q_function_2(torch.cat([o, a], dim=-1))
+
+        # Bellman backup for Q functions
+        with torch.no_grad():
+            # Target actions come from *current* policy
+            a2, logp_a2 = agent.policy(o2)
+
+            # Target Q-values
+            q1_pi_targ = agent.q_function_1_targ(torch.cat([o2, a2], dim=-1))
+            q2_pi_targ = agent.q_function_2_targ(torch.cat([o2, a2], dim=-1))
+            q_pi_targ = torch.min(q1_pi_targ, q2_pi_targ)
+            backup = r + args.gamma * (1 - d) * (q_pi_targ - args.alpha * logp_a2)
+
+        # MSE loss against Bellman backup
+        loss_q1 = ((q1 - backup) ** 2).mean()
+        loss_q2 = ((q2 - backup) ** 2).mean()
+        loss_q = loss_q1 + loss_q2
+
+        return loss_q
+
+    # Set up function for computing SAC pi loss
+    def compute_loss_pi(data):
+        o = data['obs']
+        pi, logp_pi = agent.policy(o)
+        q1_pi = agent.q_function_1(torch.cat([o, pi], dim=-1))
+        q2_pi = agent.q_function_2(torch.cat([o, pi], dim=-1))
+        q_pi = torch.min(q1_pi, q2_pi)
+
+        # Entropy-regularized policy loss
+        loss_pi = (args.alpha * logp_pi - q_pi).mean()
+
+        return loss_pi
+
+    def update_loss_sac(data):
+        # First run one gradient descent step for Q1 and Q2
+        agent.q_optimizer.zero_grad()
+        loss_q = compute_loss_q(data)
+        loss_q.backward()
+        agent.q_optimizer.step()
+
+        # Freeze Q-networks so you don't waste computational effort
+        # computing gradients for them during the policy learning step.
+        for p in agent.q_params:
+            p.requires_grad = False
+
+        # Next run one gradient descent step for pi.
+        agent.pi_optimizer.zero_grad()
+        loss_pi = compute_loss_pi(data)
+        loss_pi.backward()
+        agent.pi_optimizer.step()
+
+        # Unfreeze Q-networks so you can optimize it at next DDPG step.
+        for p in agent.q_params:
+            p.requires_grad = True
+
+        # Finally, update target networks by polyak averaging.
+        with torch.no_grad():
+            for p, p_targ in zip(agent.q_params, agent.q_params_target):
+                # NB: We use an in-place operations "mul_", "add_" to update target
+                # params, as opposed to "mul" and "add", which would make new tensors.
+                p_targ.data.mul_(args.polyak)
+                p_targ.data.add_((1 - args.polyak) * p.data)
+
+    def compute_intra_loss(data, inter_q_target_next_option, inter_q_target_current_option, inter_logp_next_option):
+        state, option, action, reward, next_state, done = data['state'], data['option'], data['action'], data['reward'], \
+                                                          data['next_state'], data['done']
+        q1 = agent.intra_q_function_1(torch.cat([state, action, option], dim=-1))
+        q2 = agent.intra_q_function_2(torch.cat([state, action, option], dim=-1))
+
+        # Bellman backup for Q functions
+        with torch.no_grad():
+            # Target actions come from *current* policy
+            next_action = []
+            logp_next_action = []
+            beta_prob = []
+            for index in range(len(option)):
+                option_element = option[index]
+                option_index = np.argmax(option_element.detach().numpy())
+                one_hot_option = np.zeros(args.option_num)
+                one_hot_option[option_index] = 1
+
+                next_state_element = next_state[index]
+                one_hot_option = tensor(one_hot_option)
+                pi_action, logp = agent.intra_option_policies[option_index](torch.cat([next_state_element, one_hot_option], dim=-1))
+                beta_prob_element = agent.beta_list[option_index](next_state_element)
+                next_action.append(pi_action)
+                logp_next_action.append(logp)
+                beta_prob.append(beta_prob_element)
+
+            # Target Q-values
+            logp_next_action = torch.stack(logp_next_action)
+            beta_prob = torch.stack(beta_prob)
+
+            # Computing Q-losses
+            backup = reward + args.gamma * (((1 - beta_prob) * inter_q_target_current_option) + (
+                        beta_prob * (inter_q_target_next_option - args.alpha * inter_logp_next_option)))
+
+            advantage = inter_q_target_current_option - (
+                        inter_q_target_next_option - args.alpha * inter_logp_next_option)
+            loss_beta = (Variable(beta_prob, requires_grad=True) * Variable(advantage, requires_grad=True)).mean()
+
+        # MSE loss against Bellman backup
+        loss_q1 = ((q1 - backup) ** 2).mean()
+        loss_q2 = ((q2 - backup) ** 2).mean()
+        loss_q = loss_q1 + loss_q2
+
+        # Entropy-regularized policy loss
+        q_pi = torch.min(q1, q2)
+        loss_pi = (args.alpha * logp_next_action - q_pi).mean()
+
+        return loss_q, loss_pi, loss_beta
+
+    def compute_inter_loss(data):
+        state, option, action, reward, next_state, done = data['state'], data['option'], data['action'], data['reward'], \
+                                                          data['next_state'], data['done']
+        q1 = agent.inter_q_function_1(torch.cat([state, option], dim=-1))
+        q2 = agent.inter_q_function_2(torch.cat([state, option], dim=-1))
+
+        # Bellman backup for Q functions
+        with torch.no_grad():
+            # Target actions come from *current* policy
+            next_option, logp_next_option = agent.inter_option_policy(next_state)
+
+            # Target Q-values
+            q1_pi_targ_next_option = agent.inter_q_function_1_targ(torch.cat([next_state, next_option], dim=-1))
+            q2_pi_targ_next_option = agent.inter_q_function_2_targ(torch.cat([next_state, next_option], dim=-1))
+            q_pi_targ_next_option = torch.min(q1_pi_targ_next_option, q2_pi_targ_next_option)
+            backup = (q_pi_targ_next_option - args.alpha * logp_next_option)
+
+            q1_pi_targ_current_option = agent.inter_q_function_1_targ(torch.cat([next_state, option], dim=-1))
+            q2_pi_targ_current_option = agent.inter_q_function_2_targ(torch.cat([next_state, option], dim=-1))
+            q_pi_targ_current_option = torch.min(q1_pi_targ_current_option, q2_pi_targ_current_option)
+
+        # MSE loss against Bellman backup
+        loss_q1 = ((q1 - backup) ** 2).mean()
+        loss_q2 = ((q2 - backup) ** 2).mean()
+        loss_q = loss_q1 + loss_q2
+
+        # Entropy-regularized policy loss
+        q_pi = torch.min(q1, q2)
+        loss_pi = (args.alpha * logp_next_option - q_pi).mean()
+
+        return loss_q, loss_pi, q_pi_targ_next_option, q_pi_targ_current_option, logp_next_option
+
+    def update_loss_soc(data):
+        # One gradient step for inter-q function and inter-policy
+        agent.inter_q_function_optim.zero_grad()
+        loss_inter_q, loss_inter_pi, q_pi_targ_next_option, q_pi_targ_current_option, logp_next_option = compute_inter_loss(
+            data)
+
+        # One gradient step for intra-q function and intra-policy
+        agent.intra_q_function_optim.zero_grad()
+        loss_intra_q, loss_intra_pi, loss_beta = compute_intra_loss(data, q_pi_targ_next_option,
+                                                                    q_pi_targ_current_option, logp_next_option)
+
+        #######################################################################################################
+        # Updating Inter-Q Functions & Inter-Policy
+        loss_inter_q.backward(retain_graph=True)
+        agent.inter_q_function_optim.step()
+
+        # Record things
+        logger.log_data("inter_q_function_loss", total_step_count, loss_inter_q.item())
+
+        # Freeze Q-networks so you don't waste computational effort
+        # computing gradients for them during the policy learning step.
+        for p in agent.q_params_inter:
+            p.requires_grad = False
+
+        # Next run one gradient descent step for pi.
+        agent.inter_policy_optim.zero_grad()
+        loss_inter_pi.backward(retain_graph=True)
+        agent.inter_policy_optim.step()
+
+        # Unfreeze Q-networks so you can optimize it at next DDPG step.
+        for p in agent.q_params_inter:
+            p.requires_grad = True
+
+        # Record things
+        logger.log_data("inter_q_policy_loss", total_step_count, loss_inter_pi.item())
+
+        # Finally, update target networks by polyak averaging.
+        with torch.no_grad():
+            for p, p_targ in zip(agent.q_params_inter, agent.q_params_inter_target):
+                # NB: We use an in-place operations "mul_", "add_" to update target
+                # params, as opposed to "mul" and "add", which would make new tensors.
+                p_targ.data.mul_(args.polyak)
+                p_targ.data.add_((1 - args.polyak) * p.data)
+
+        #######################################################################################################
+
+        # Updating Intra-Q Functions & Intra-Policy
+        loss_intra_q.backward(retain_graph=True)
+        agent.intra_q_function_optim.step()
+
+        # Record things
+        logger.log_data("intra_q_function_loss", total_step_count, loss_intra_q.item())
+
+        # Freeze Q-networks so you don't waste computational effort
+        # computing gradients for them during the policy learning step.
+        for p in agent.q_params_intra:
+            p.requires_grad = False
+
+        # Next run one gradient descent step for pi.
+        agent.intra_policy_optim.zero_grad()
+        loss_intra_pi.backward(retain_graph=True)
+        agent.intra_policy_optim.step()
+
+        # Unfreeze Q-networks so you can optimize it at next DDPG step.
+        for p in agent.q_params_intra:
+            p.requires_grad = True
+
+        # Record things
+        logger.log_data("intra_q_policy_loss", total_step_count, loss_intra_pi.item())
+
+        agent.beta_optim.zero_grad()
+        # loss_beta.backward(retain_graph=True)
+        agent.beta_optim.step()
+
+        logger.log_data("beta_policy_loss", total_step_count, loss_beta.item())
+
+        # Finally, update target networks by polyak averaging.
+        with torch.no_grad():
+            for p, p_targ in zip(agent.q_params_intra, agent.q_params_intra_target):
+                # NB: We use an in-place operations "mul_", "add_" to update target
+                # params, as opposed to "mul" and "add", which would make new tensors.
+                p_targ.data.mul_(args.polyak)
+                p_targ.data.add_((1 - args.polyak) * p.data)
+
+    def get_option(state):
+        option, logp_next_option = agent.inter_option_policy(state)
+        return option
+
+    def get_action_option(option_index, one_hot_option, state):
+        return agent.intra_option_policies[option_index](torch.cat([state, one_hot_option], dim=-1))
+
+    def get_action(state):
+        return agent.policy(state)
+
+    state = tensor(env.reset())
     while total_step_count in range(args.total_step_num):
-        state = tensor(agent.env.reset())
+        # Until start_steps have elapsed, randomly sample actions
+        # from a uniform distribution for better exploration. Afterwards,
+        # use the learned policy.
+        if args.model_type == "SOC":
+            option = get_option(state)
+            option_index = np.argmax(option.detach().numpy())
+            one_hot_option = np.zeros(args.option_num)
+            one_hot_option[option_index] = 1
 
-        ep_reward = 0
-        episode_end = False
+            if total_step_count > args.update_after:
+                action = get_action_option(option_index, tensor(one_hot_option), state)[0].detach().numpy()
+            else:
+                action = env.action_space.sample()
+        else:
+            if total_step_count > args.update_after:
+                action = get_action(state)
+            else:
+                action = env.action_space.sample()
 
-        for j in range(args.max_episode_len):
-            if args.render_env:
-                agent.env.render()
+        next_state, reward, done, _ = env.step(action)
+        ep_reward += reward
+        ep_len += 1
+        # Ignore the "done" signal if it comes from hitting the time
+        # horizon (that is, when it's an artificial terminal signal
+        # that isn't based on the agent's state)
+        d = False if ep_len == args.max_episode_len else done
 
-            q, hidden = agent.actor_critic(Variable(state.unsqueeze(0)))
-            option = agent.esoft(q, args.epsilon)
-            yt = agent.actor_critic.getTermination(hidden, option)
+        # Store experience to replay buffer
+        if args.model_type == "SOC":
+            replay_buffer.store(state, option.detach().numpy(), action, reward, next_state, d)
 
-            term = yt.bernoulli()
-            termination_condition = term.data[0][0]
-            if termination_condition:
-                option = agent.esoft(q, args.epsilon)
+            term_prob = agent.beta_list[option_index](state)
+            if term_prob == 1:
+                option = get_option(next_state)
+        else:
+            replay_buffer.store(state, action, reward, next_state, d)
 
-            logit = agent.actor_critic.getAction(hidden, option)
+        state = torch.tensor(next_state).float()
+        # End of trajectory handling
+        if d or (ep_len == args.max_episode_len):
+            log[args.log_name].info("Returns: {:.3f} at iteration {}".format(ep_reward, total_step_count))
+            state, ep_reward, ep_len = env.reset(), 0, 0
+            state = torch.tensor(next_state).float()
 
-            prob = F.softmax(logit, dim=1)
-            log_prob = F.log_softmax(logit, dim=1)
-            entropy = -(log_prob * prob).sum(1)
-            action = prob.multinomial(1).data
-            log_prob = log_prob.gather(1, Variable(action))
+        # Update handling
+        if total_step_count >= args.update_after and total_step_count % args.update_every == 0:
+            for j in range(args.update_every):
+                batch = replay_buffer.sample_batch(args.batch_size)
+                if args.model_type == "SOC":
+                    update_loss_soc(data=batch)
+                else:
+                    update_loss_sac(data=batch)
 
-            next_state, reward, terminal, info = agent.env.step(action.cpu().numpy()[0][0])
-            next_state = torch.from_numpy(next_state).float()
-            ep_ret += reward
+        total_step_count += 1
 
-            value = q.max(-1)[0]
-
-            replay_buffer.push(state.cpu().numpy(), action.squeeze(0), entropy.squeeze(0), log_prob.squeeze(0), reward,
-                               next_state.cpu().numpy(), terminal, q[0][option].squeeze(0), value.squeeze(0),
-                               yt.squeeze(0))
-
-            if j == int(args.max_episode_len) - 1:
-                episode_end = True
-
-            state = next_state
-            ep_reward += reward
-
-            total_step_count += 1
-
-            if total_step_count >= int(args.save_model_num) * save_cnt:
-                model_path = "./Model/SoftOptionCritic/" + args.env_name + '/'
-                pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
-
-                agent.save_weights(iteration=test_iter, expname=result_name, model_path=model_path)
-                agent.model_dir = model_path
-                agent.load_weights()
-
-                save_cnt += 1
-
-            if terminal or episode_end:
-                epi_cnt += 1
-                time_difference = time.time() - previous_time
-                total_time += time_difference
-                previous_time = time.time()
-                logger.log_episode(total_step_count, ep_reward, total_time / 60, option_list)
-                log[args.log_name].info("Returns: {:.3f} at iteration {}".format(ep_reward, total_step_count))
-                break
-
-        if total_step_count != int(args.total_step_num):
-            update_num = total_step_count - trained_times_steps
-            trained_times_steps = total_step_count
-            update_policy(args, agent, replay_buffer, update_num, logger, total_step_count)
-            option_ite = option_ite + 1
-            replay_buffer_onpolicy.clear()
+        if total_step_count % args.save_model_every == 0:
+            model_path = "./Model/" + args.model_type + "/" + args.env_name + '/'
+            pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
+            torch.save(agent.state_dict(), model_path + args.exp_name + str(total_step_count) + ".pth")
 
 
 def main(args):
@@ -209,101 +358,68 @@ def main(args):
 
     env_test = BugCrippledEnv(cripple_prob=1.0)
     env_test.seed(args.random_seed)
-
-    state_dim = env.observation_space.shape[0]
-    action_dim = env.action_space.shape[0]
-
-    action_bound = tensor(env.action_space.high)
-    assert (env.action_space.high[0] == -env.action_space.low[0])
     torch.set_num_threads(3)
 
-    agent = SoftOptionCritic(args, env, state_dim, action_dim, action_bound,
-                             tau=args.tau,
-                             actor_lr=args.actor_lr,
-                             critic_lr=args.critic_lr,
-                             option_lr=args.option_lr,
-                             gamma=args.gamma,
-                             hidden_dim=np.asarray(args.hidden_dim),
-                             entropy_coeff=args.entropy_coeff,
-                             c_reg=args.c_reg,
-                             option_num=args.option_num,
-                             vat_noise=args.vat_noise,
-                             c_ent=args.c_ent)
+    if args.model_type == "SOC":
+        agent = SoftOptionCritic(observation_space=env.observation_space,
+                                 action_space=env.action_space,
+                                 option_num=args.option_num,
+                                 hidden_size=args.hidden_dim,
+                                 lr=args.lr)
+        replay_buffer = ReplayBufferSOC(obs_dim=agent.obs_dim, act_dim=agent.action_dim, option_num=args.option_num,
+                                     size=args.buffer_size)
+    else:
+        agent = SoftActorCritic(observation_space=env.observation_space,
+                                action_space=env.action_space,
+                                hidden_size=args.hidden_dim,
+                                lr=args.lr)
 
-    train(args, agent, env_test)
+        replay_buffer = ReplayBufferSAC(obs_dim=agent.obs_dim, act_dim=agent.action_dim, size=args.buffer_size)
+
+
+    train(args, agent, env, replay_buffer)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='provide arguments for AdInfoHRLTD3 agent_utils')
 
     # Actor Critic Parameters
-    parser.add_argument('--actor-lr', help='actor network learning rate', default=1e-3)
-    parser.add_argument('--critic-lr', help='critic network learning rate', default=1e-3)
-    parser.add_argument('--option-lr', help='option network learning rate', default=1e-2)
-    parser.add_argument('--lr', type=float, default=0.0007, help='learning rate, can increase to 0.005')
+    parser.add_argument('--lr', type=float, default=1e-3, help='learning rate, can increase to 0.005')
     parser.add_argument('--amsgrad', default=True, help='Adam optimizer amsgrad parameter')
     parser.add_argument('--gamma', help='discount factor for critic updates', default=0.99)
-    parser.add_argument('--tau', help='soft target update parameter', default=0.005)
+    parser.add_argument('--alpha', help='Entropy regularization coefficient', default=0.2)
+    parser.add_argument('--polyak', help='averaging for target networks', default=0.995)
+    parser.add_argument('--epsilon', help='epsilon for policy over options', type=float, default=0.15)
+
     parser.add_argument('--buffer-size', help='max size of the replay buffer', default=1000000)
-    parser.add_argument('--hidden-dim', help='number of units in the hidden layers',
-                        default=(400, 300))  # 64 x 64, 400 x 300
-    parser.add_argument('--minibatch-size', help='size of minibatch for minibatch-SGD', default=100)
-    parser.add_argument('--policy-minibatch-size', help='batch for updating policy', default=400)
+    parser.add_argument('--hidden-dim', help='number of units in the hidden layers', default=64)
+    parser.add_argument('--batch-size', help='size of minibatch for minibatch-SGD', default=100)
 
     # Option Specific Parameters
-    parser.add_argument('--option-batch-size', help='batch size for updating option', default=6000)  # keep as 1000
-    parser.add_argument('--option-update-num', help='iteration for updating option', default=4000)  # 1000
-    parser.add_argument('--option-minibatch-size', help='size of minibatch for minibatch-SGD', default=100)  # 100
-    parser.add_argument('--option-ite', help='batch size for updating policy', default=1)
     parser.add_argument('--option-num', help='number of options', default=4)
-    parser.add_argument('--temporal-num', help='frequency of the gating policy selection', default=3)
-    parser.add_argument('--hidden-dim_0', help='number of units in the hidden layers', type=int, default=400)  # 64 x 64
-    parser.add_argument('--hidden-dim_1', help='number of units in the hidden layers', type=int, default=300)  # 64 x 64
 
     # Episodes and Exploration Parameters
     parser.add_argument('--total-step-num', help='total number of time steps', default=10000000)
-    parser.add_argument('--sample-step-num', help='number of time steps for recording the return', default=5000)
     parser.add_argument('--test-num', help='number of episode for recording the return', default=10)
-    parser.add_argument('--action-noise', help='parameter of the noise for exploration', default=0.2)
-    parser.add_argument('--policy-freq', help='frequency of updating the policy', default=2)
-    parser.add_argument('--max_frames', help='Maximum no of frames', type=int, default=1500000)
-    parser.add_argument('--max_steps', help='Maximum no of steps', type=int, default=1500000)
-    parser.add_argument('--runs', help='Runs', type=int, default=5)
-
-    # Entropy Parameters
-    parser.add_argument('--entropy_coeff', help='cofficient for the mutual information term', default=0.1)  # 0.1)
-    parser.add_argument('--c-reg', help='cofficient for regularization term', default=1.0)
-    parser.add_argument('--c-ent', help='cofficient for regularization term', default=4.0)
-    parser.add_argument('--vat-noise', help='noise for vat in clustering', default=0.04)
-    parser.add_argument('--hard-sample-assignment', help='False means soft assignment', default=True)
-    parser.add_argument('--epsilon', help='epsilon for policy over options', type=float, default=0.15)
+    parser.add_argument('--max-steps', help='Maximum no of steps', type=int, default=1500000)
+    parser.add_argument('--update-after', help='Number of env interactions to collect before starting to updates',
+                        type=int, default=1000)
+    parser.add_argument('--update-every', help='update model after certain number steps', type=int, default=50)
 
     # Environment Parameters
     parser.add_argument('--env_name', help='name of env', type=str,
-                        default="BugCrippled-v-")
+                        default="BugCrippled")
     parser.add_argument('--random-seed', help='random seed for repeatability', default=1234)
     parser.add_argument('--max-episode-len', help='max length of 1 episode', default=1000)
 
     # Plotting Parameters
-    parser.add_argument('--summary-dir', help='directory for storing tensorboard info',
-                        default='./results/tf_adInfoHRL')
-    parser.add_argument('--result-file', help='file name for storing results from multiple trials',
-                        default='./results/trials/trials_AdInfoHRLAlt')
-    parser.add_argument('--overwrite-result', help='flag for overwriting the trial file', default=True)
-    parser.add_argument('--trial-num', help='number of trials', default=1)
-    parser.add_argument('--trial-idx', help='index of trials', default=0)
-    parser.add_argument('--change-seed', help='change the random seed to obtain different results', default=False)
-    parser.add_argument('--save_model-num', help='number of time steps for saving the network models', default=50000)
     parser.add_argument('--log_dir', help='Log directory', type=str, default="log_dir")
     parser.add_argument('--log_name', help='Log directory', type=str, default="logged_data")
-
+    parser.add_argument('--save-model-every', help='Save model every certain number of steps', type=int, default=200)
+    parser.add_argument('--exp-name', help='Experiment Name', type=str, default="trial_1")
     parser.add_argument('--model_dir', help='Model directory', type=str, default="model/")
-    parser.add_argument('--plot_dir', help='Model directory', type=str, default="plots/")
-    parser.add_argument('--checkpoint_available', help='whether you can load a model', default=True)
-    parser.set_defaults(render_env=False)
-    parser.set_defaults(use_gym_monitor=True)
-    parser.set_defaults(change_seed=True)
-    parser.set_defaults(overwrite_result=False)
+
+    parser.add_argument('--model_type', help='Model Type', type=str, default="SOC")
 
     args = parser.parse_args()
     main(args)

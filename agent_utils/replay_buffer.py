@@ -1,72 +1,72 @@
 import torch
-import random
 import numpy as np
 
-use_cuda = torch.cuda.is_available()
-if use_cuda:
-    torch.set_default_tensor_type('torch.cuda.FloatTensor')
-device = torch.device("cuda" if use_cuda else "cpu")
+def combined_shape(length, shape=None):
+    if shape is None:
+        return (length,)
+    return (length, shape) if np.isscalar(shape) else (length, *shape)
 
+class ReplayBufferSOC:
+    """
+    A simple FIFO experience replay buffer for SAC agents.
+    """
 
-class ReplayBuffer:
-    def __init__(self, capacity):
-        self.capacity = capacity
-        self.buffer = []
-        self.position = 0
+    def __init__(self, obs_dim, act_dim, option_num, size):
+        self.state_buf = np.zeros(combined_shape(size, obs_dim), dtype=np.float32)
+        self.option_buf = np.zeros(combined_shape(size, option_num), dtype=np.float32)
+        self.next_state_buf = np.zeros(combined_shape(size, obs_dim), dtype=np.float32)
+        self.action_buf = np.zeros(combined_shape(size, act_dim), dtype=np.float32)
+        self.reward_buf = np.zeros(size, dtype=np.float32)
+        self.done_buf = np.zeros(size, dtype=np.float32)
+        self.ptr, self.size, self.max_size = 0, 0, size
 
-    def push(self, state, action, reward, next_state, done):
-        if len(self.buffer) < self.capacity:
-            self.buffer.append(None)
+    def store(self, state, option, action, reward, next_state, done):
+        self.state_buf[self.ptr] = state
+        self.option_buf[self.ptr] = option
+        self.next_state_buf[self.ptr] = next_state
+        self.action_buf[self.ptr] = action
+        self.reward_buf[self.ptr] = reward
+        self.done_buf[self.ptr] = done
+        self.ptr = (self.ptr + 1) % self.max_size
+        self.size = min(self.size + 1, self.max_size)
 
-        self.buffer[self.position] = (
-            state, action, reward, next_state, done)
-        self.position = (self.position + 1) % self.capacity
+    def sample_batch(self, batch_size=32):
+        idxs = np.random.randint(0, self.size, size=batch_size)
+        batch = dict(state=self.state_buf[idxs],
+                     option=self.option_buf[idxs],
+                     action=self.action_buf[idxs],
+                     reward=self.reward_buf[idxs],
+                     next_state=self.next_state_buf[idxs],
+                     done=self.done_buf[idxs])
+        return {k: torch.as_tensor(v, dtype=torch.float32) for k, v in batch.items()}
 
-    def sample(self, batch_size, flag=False):
-        batch = random.sample(self.buffer, batch_size)
-        if flag:
-            batch = self.buffer[0:batch_size]
-        state, action, reward, next_state, done = map(
-            np.stack, zip(*batch))
-        return state, action, reward, next_state, done
+class ReplayBufferSAC:
+    """
+    A simple FIFO experience replay buffer for SAC agents.
+    """
 
-    def clear(self):
-        del self.buffer
-        self.buffer = []
-        self.position = 0
+    def __init__(self, obs_dim, act_dim, size):
+        self.obs_buf = np.zeros(combined_shape(size, obs_dim), dtype=np.float32)
+        self.obs2_buf = np.zeros(combined_shape(size, obs_dim), dtype=np.float32)
+        self.act_buf = np.zeros(combined_shape(size, act_dim), dtype=np.float32)
+        self.rew_buf = np.zeros(size, dtype=np.float32)
+        self.done_buf = np.zeros(size, dtype=np.float32)
+        self.ptr, self.size, self.max_size = 0, 0, size
 
-    def __len__(self):
-        return len(self.buffer)
+    def store(self, obs, act, rew, next_obs, done):
+        self.obs_buf[self.ptr] = obs
+        self.obs2_buf[self.ptr] = next_obs
+        self.act_buf[self.ptr] = act
+        self.rew_buf[self.ptr] = rew
+        self.done_buf[self.ptr] = done
+        self.ptr = (self.ptr + 1) % self.max_size
+        self.size = min(self.size + 1, self.max_size)
 
-
-class ReplayBufferWeighted:
-    def __init__(self, capacity):
-        self.capacity = capacity
-        self.buffer = []
-        self.position = 0
-
-    def push(self, state, action, entropy, log_prob, reward, next_state, done, q_value, value, yt):
-        if len(self.buffer) < self.capacity:
-            self.buffer.append(None)
-
-        self.buffer[self.position] = (
-            state, action, entropy, log_prob, reward, next_state, done, q_value, value, yt)
-        self.position = (self.position + 1) % self.capacity
-
-    def sample(self, batch_size, flag=False):
-        batch_size = min(batch_size, len(self.buffer))
-        batch = random.sample(self.buffer, batch_size)
-        if flag:
-            batch = self.buffer[0:batch_size]
-
-        state, action, entropy, log_prob, reward, next_state, done, q_value, value, yt = zip(*batch)
-
-        return state, action, entropy, log_prob, reward, next_state, done, q_value, value, yt
-
-    def clear(self):
-        del self.buffer
-        self.buffer = []
-        self.position = 0
-
-    def __len__(self):
-        return len(self.buffer)
+    def sample_batch(self, batch_size=32):
+        idxs = np.random.randint(0, self.size, size=batch_size)
+        batch = dict(obs=self.obs_buf[idxs],
+                     obs2=self.obs2_buf[idxs],
+                     act=self.act_buf[idxs],
+                     rew=self.rew_buf[idxs],
+                     done=self.done_buf[idxs])
+        return {k: torch.as_tensor(v, dtype=torch.float32) for k, v in batch.items()}
