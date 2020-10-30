@@ -5,7 +5,7 @@ import numpy as np
 from tensorboardX import SummaryWriter
 
 
-class Logger():
+class TensorBoardLogger():
     def __init__(self, logdir, run_name):
         self.log_name = logdir + '/' + run_name
         self.tf_writer = None
