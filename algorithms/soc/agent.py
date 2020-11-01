@@ -90,8 +90,7 @@ class SoftOptionCritic(nn.Module):
         ################################################################
         # Computing Intra-Q Function Update
         option = option.flatten().numpy().astype(int)
-        shape = (option.size, 4)
-        one_hot = np.zeros(shape)
+        one_hot = np.zeros((option.size, self.args.option_num))
         rows = np.arange(len(option))
         one_hot[rows, option] = 1
 
@@ -101,16 +100,16 @@ class SoftOptionCritic(nn.Module):
         q1_inter_all = self.inter_q_function_1(state)
         q2_inter_all = self.inter_q_function_2(state)
 
-        indices = torch.LongTensor(option)
-        indices = indices.unsqueeze(-1)
-        q1_inter = torch.gather(q1_inter_all, 1, indices, out=None, sparse_grad=False)
-        q2_inter = torch.gather(q2_inter_all, 1, indices, out=None, sparse_grad=False)
+        option_indices = torch.LongTensor(option)
+        option_indices = option_indices.unsqueeze(-1)
+        q1_inter = torch.gather(q1_inter_all, 1, option_indices, out=None, sparse_grad=False)
+        q2_inter = torch.gather(q2_inter_all, 1, option_indices, out=None, sparse_grad=False)
 
         with torch.no_grad():
             q1_inter_targ = self.inter_q_function_1_targ(next_state)
             q2_inter_targ = self.inter_q_function_2_targ(next_state)
             q_inter_targ = torch.min(q1_inter_targ, q2_inter_targ)
-            q_inter_targ_current_option = torch.gather(q_inter_targ, 1, indices, out=None, sparse_grad=False)
+            q_inter_targ_current_option = torch.gather(q_inter_targ, 1, option_indices, out=None, sparse_grad=False)
             q_inter_targ_next_option = np.argmax(np.max(q_inter_targ.data.numpy()))
 
             # Target actions come from *current* policy
@@ -139,7 +138,7 @@ class SoftOptionCritic(nn.Module):
             q2_pi = self.inter_q_function_2(next_state)
             q_pi = torch.min(q1_pi, q2_pi)
 
-            q_pi_current_option = torch.gather(q_pi, 1, indices, out=None, sparse_grad=False)
+            q_pi_current_option = torch.gather(q_pi, 1, option_indices, out=None, sparse_grad=False)
             q_pi_next_option = np.argmax(np.max(q_pi.data.numpy()))
             advantage = q_pi_current_option - q_pi_next_option
 
