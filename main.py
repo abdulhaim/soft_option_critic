@@ -10,7 +10,7 @@ import random
 from misc.utils import set_log
 from misc.torch_utils import tensor
 
-def train(args, agent, env, replay_buffer, log, tb_writer):
+def train(args, agent, env, replay_buffer):
     ep_reward = 0
     ep_len = 0
     state = tensor(env.reset())
@@ -51,7 +51,8 @@ def train(args, agent, env, replay_buffer, log, tb_writer):
 
         # End of trajectory handling
         if d or (ep_len == args.max_episode_len):
-            log[args.log_name].info("Returns: {:.3f} at iteration {}".format(ep_reward, total_step_count))
+            agent.log[args.log_name].info("Returns: {:.3f} at iteration {}".format(ep_reward, total_step_count))
+            agent.tb_writer.log_data("episodic_reward", total_step_count, ep_reward)
             state, ep_reward, ep_len = env.reset(), 0, 0
             state = torch.tensor(next_state).float()
 
@@ -66,7 +67,7 @@ def train(args, agent, env, replay_buffer, log, tb_writer):
 
         # Save model
         if total_step_count % args.save_model_every == 0:
-            model_path = "./Model/" + args.model_type + "/" + args.env_name + '/'
+            model_path = args.model_dir + args.model_type + "/" + args.env_name + '/'
             pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
             torch.save(agent.state_dict(), model_path + args.exp_name + str(total_step_count) + ".pth")
 
@@ -79,13 +80,13 @@ def main(args):
         os.makedirs("./pytorch_models")
 
     log = set_log(args)
-    tb_writer = TensorBoardLogger(logdir=args.log_dir, run_name=args.env_name + time.ctime())
+    tb_writer = TensorBoardLogger(logdir=args.log_name, run_name=args.env_name + time.ctime())
 
     # Set seeds
     random.seed(args.random_seed)
     np.random.seed(args.random_seed)
     torch.manual_seed(args.random_seed)
-
+    torch.set_num_threads(8)
     #Set env
     env = BugCrippledEnv(cripple_prob=1.0)
     env.seed(args.random_seed)
@@ -116,7 +117,7 @@ def main(args):
             log=log)
         replay_buffer = ReplayBufferSAC(obs_dim=agent.obs_dim, act_dim=agent.action_dim, size=args.buffer_size)
 
-    train(args, agent, env, replay_buffer, log, tb_writer)
+    train(args, agent, env, replay_buffer)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='provide arguments for AdInfoHRLTD3 algorithms')
@@ -132,7 +133,7 @@ if __name__ == '__main__':
     parser.add_argument('--buffer-size', help='max size of the replay buffer', default=1000000)
     parser.add_argument('--hidden-dim', help='number of units in the hidden layers', default=64)
     parser.add_argument('--batch-size', help='size of minibatch for minibatch-SGD', default=100)
-
+    parser.add_argument("--max-grad-clip", type=float, default=10.0, help="Max norm gradient clipping value")
     # Option Specific Parameters
     parser.add_argument('--option-num', help='number of options', default=4)
 
@@ -151,8 +152,7 @@ if __name__ == '__main__':
     parser.add_argument('--max-episode-len', help='max length of 1 episode', default=1000)
 
     # Plotting Parameters
-    parser.add_argument('--log_dir', help='Log directory', type=str, default="log_dir")
-    parser.add_argument('--log_name', help='Log directory', type=str, default="logged_data")
+    parser.add_argument('--log_name', help='Log directory', type=str, default="logs")
     parser.add_argument('--save-model-every', help='Save model every certain number of steps', type=int, default=200)
     parser.add_argument('--exp-name', help='Experiment Name', type=str, default="trial_1")
     parser.add_argument('--model_dir', help='Model directory', type=str, default="model/")

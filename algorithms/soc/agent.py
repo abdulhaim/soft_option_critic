@@ -164,6 +164,7 @@ class SoftOptionCritic(nn.Module):
 
         # Updating Inter-Q Functions
         loss_inter_q.backward(retain_graph=True)
+        torch.nn.utils.clip_grad_norm_(self.q_params_inter, self.args.max_grad_clip)
         self.inter_q_function_optim.step()
         self.tb_writer.log_data("inter_q_function_loss", self.iteration, loss_inter_q.item())
 
@@ -179,6 +180,7 @@ class SoftOptionCritic(nn.Module):
 
         # Updating Intra-Q Functions
         loss_intra_q.backward(retain_graph=True)
+        torch.nn.utils.clip_grad_norm_(self.q_params_intra, self.args.max_grad_clip)
         self.intra_q_function_optim.step()
         self.tb_writer.log_data("intra_q_function_loss", self.iteration, loss_intra_q.item())
 
@@ -189,6 +191,7 @@ class SoftOptionCritic(nn.Module):
 
         # Updating Intra-Policy
         loss_intra_pi.backward(retain_graph=True)
+        torch.nn.utils.clip_grad_norm_(self.q_params_intra, self.args.max_grad_clip)
         self.intra_policy_optim.step()
         # Unfreeze Q-networks so you can optimize it at next DDPG step.
         for p in self.q_params_intra:
@@ -197,6 +200,7 @@ class SoftOptionCritic(nn.Module):
 
         # Updating Beta-Policy
         loss_beta.backward(retain_graph=True)
+        torch.nn.utils.clip_grad_norm_(self.beta_params, self.args.max_grad_clip)
         self.beta_optim.step()
         self.tb_writer.log_data("beta_policy_loss", self.iteration, loss_beta.item())
 

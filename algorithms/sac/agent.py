@@ -35,6 +35,7 @@ class SoftActorCritic(nn.Module):
         self.q_optimizer = Adam(self.q_params, lr=args.lr)
 
         self.iteration = 0
+
     def compute_loss_q(self, data, args):
         o, a, r, o2, d = data['state'], data['action'], data['reward'], data['next_state'], data['done']
 
@@ -79,6 +80,7 @@ class SoftActorCritic(nn.Module):
         loss_q = self.compute_loss_q(data)
         loss_q.backward()
         self.q_optimizer.step()
+        self.tb_writer.log_data("q function loss", self.iteration, loss_q.item())
 
         # Freeze Q-networks so you don't waste computational effort
         # computing gradients for them during the policy learning step.
@@ -90,6 +92,7 @@ class SoftActorCritic(nn.Module):
         loss_pi = self.compute_loss_pi(data)
         loss_pi.backward()
         self.pi_optimizer.step()
+        self.tb_writer.log_data("policy loss", self.iteration, loss_pi.item())
 
         # Unfreeze Q-networks so you can optimize it at next DDPG step.
         for p in self.q_params:
@@ -102,3 +105,5 @@ class SoftActorCritic(nn.Module):
                 # params, as opposed to "mul" and "add", which would make new tensors.
                 p_targ.data.mul_(args.polyak)
                 p_targ.data.add_((1 - args.polyak) * p.data)
+
+        self.iteration += 1
