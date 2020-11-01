@@ -14,19 +14,22 @@ def train(args, agent, env, replay_buffer):
     ep_reward = 0
     ep_len = 0
     state = tensor(env.reset())
-    option = agent.get_option(state, args.epsilon)
     for total_step_count in range(args.total_step_num):
         # Until start_steps have elapsed, randomly sample actions
         # from a uniform distribution for better exploration. Afterwards,
         # use the learned policy.
 
-        if total_step_count > args.update_after:
+        if total_step_count < args.update_after:
+            agent.current_option = agent.get_option(tensor(state), agent.get_epsilon())
             action = env.action_space.sample()  # Uniform random sampling from action space for exploration
+            logp = 1
         else:
             if args.model_type == "SOC":
-                if agent.predict_option_termination(state, option) == 1:
-                    option = agent.get_option(state, args.epsilon)
-                action, logp = agent.get_action(option, state)
+                if agent.predict_option_termination(state, agent.current_option) == 1:
+                    agent.current_option = agent.get_option(state, agent.get_epsilon())
+                    agent.tb_writer.log_data("option", total_step_count, agent.current_option)
+
+                action, logp = agent.get_action(agent.current_option, state)
 
             else:
                 action, _ = agent.get_action(state)
@@ -34,7 +37,7 @@ def train(args, agent, env, replay_buffer):
         next_state, reward, done, _ = env.step(action)
         ep_reward += reward
         ep_len += 1
-        beta_prob = agent.beta_list[option](tensor(next_state)).detach().numpy()
+        beta_prob = agent.beta_list[agent.current_option](tensor(next_state)).detach().numpy()
         # Ignore the "done" signal if it comes from hitting the time
         # horizon (that is, when it's an artificial terminal signal
         # that isn't based on the agent's state)
@@ -42,7 +45,7 @@ def train(args, agent, env, replay_buffer):
 
         # Store experience to replay buffer
         if args.model_type == "SOC":
-            replay_buffer.store(state, option, action, logp, beta_prob, reward, next_state, d)
+            replay_buffer.store(state, agent.current_option, action, logp, beta_prob, reward, next_state, d)
         else:
             replay_buffer.store(state, action, reward, next_state, d)
 
@@ -74,10 +77,10 @@ def train(args, agent, env, replay_buffer):
 
 def main(args):
     # Create directories
-    if not os.path.exists("./logs"):
-        os.makedirs("./logs")
-    if not os.path.exists("./pytorch_models"):
-        os.makedirs("./pytorch_models")
+    if not os.path.exists(args.log_name):
+        os.makedirs(args.log_name)
+    if not os.path.exists(args.model_dir):
+        os.makedirs(args.model_dir)
 
     log = set_log(args)
     tb_writer = TensorBoardLogger(logdir=args.log_name, run_name=args.env_name + time.ctime())
@@ -124,17 +127,18 @@ if __name__ == '__main__':
 
     # Actor Critic Parameters
     parser.add_argument('--lr', type=float, default=1e-3, help='learning rate, can increase to 0.005')
-    parser.add_argument('--amsgrad', default=True, help='Adam optimizer amsgrad parameter')
     parser.add_argument('--gamma', help='discount factor for critic updates', default=0.99)
     parser.add_argument('--alpha', help='Entropy regularization coefficient', default=0.2)
     parser.add_argument('--polyak', help='averaging for target networks', default=0.995)
-    parser.add_argument('--epsilon', help='epsilon for policy over options', type=float, default=0.15)
-
     parser.add_argument('--buffer-size', help='max size of the replay buffer', default=1000000)
     parser.add_argument('--hidden-dim', help='number of units in the hidden layers', default=64)
     parser.add_argument('--batch-size', help='size of minibatch for minibatch-SGD', default=100)
     parser.add_argument("--max-grad-clip", type=float, default=10.0, help="Max norm gradient clipping value")
+
     # Option Specific Parameters
+    parser.add_argument('--eps-start', type=float, default=1.0, help=('Starting value for epsilon.'))
+    parser.add_argument('--eps-min', type=float, default=.1, help='Minimum epsilon.')
+    parser.add_argument('--eps-decay', type=float, default=500000, help=('Number of steps to minimum epsilon.'))
     parser.add_argument('--option-num', help='number of options', default=4)
 
     # Episodes and Exploration Parameters
@@ -156,7 +160,6 @@ if __name__ == '__main__':
     parser.add_argument('--save-model-every', help='Save model every certain number of steps', type=int, default=200)
     parser.add_argument('--exp-name', help='Experiment Name', type=str, default="trial_1")
     parser.add_argument('--model_dir', help='Model directory', type=str, default="model/")
-
     parser.add_argument('--model_type', help='Model Type', type=str, default="SOC")
 
     args = parser.parse_args()

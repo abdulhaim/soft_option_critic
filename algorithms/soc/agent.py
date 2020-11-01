@@ -5,6 +5,7 @@ import itertools
 import numpy as np
 import torch.nn as nn
 
+from math import exp
 from copy import deepcopy
 from torch.optim import Adam
 from torch.autograd import Variable
@@ -68,6 +69,13 @@ class SoftOptionCritic(nn.Module):
         self.beta_optim = Adam(self.beta_params, lr=args.lr)
 
         self.iteration = 0
+        self.total_steps = 0
+
+    def get_epsilon(self):
+        eps = self.args.eps_min + (self.args.eps_start - self.args.eps_min) * exp(-self.total_steps / self.args.eps_decay)
+        self.tb_writer.log_data("epsilon", self.total_steps, eps)
+        self.total_steps += 1
+        return eps
 
     def get_option(self, q, eta):  # soft-epsilon strategy
         if random.random() > eta:
