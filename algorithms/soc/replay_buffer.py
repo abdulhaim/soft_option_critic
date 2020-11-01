@@ -8,7 +8,7 @@ class ReplayBufferSOC(object):
     """
     def __init__(self, obs_dim, act_dim, option_num, size):
         self.state_buf = np.zeros(combined_shape(size, obs_dim), dtype=np.float32)
-        self.option_buf = np.zeros(combined_shape(size, option_num), dtype=np.float32)
+        self.option_buf = np.zeros(combined_shape(size, 1), dtype=np.float32)
         self.next_state_buf = np.zeros(combined_shape(size, obs_dim), dtype=np.float32)
         self.action_buf = np.zeros(combined_shape(size, act_dim), dtype=np.float32)
         self.reward_buf = np.zeros(size, dtype=np.float32)
