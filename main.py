@@ -26,7 +26,7 @@ def train(args, agent, env, replay_buffer, log, tb_writer):
             if args.model_type == "SOC":
                 if agent.predict_option_termination(state, option) == 1:
                     option = agent.get_option(state, args.epsilon)
-                action = agent.get_action(option, state)
+                action, logp = agent.get_action(option, state)
 
             else:
                 action, _ = agent.get_action(state)
@@ -34,7 +34,7 @@ def train(args, agent, env, replay_buffer, log, tb_writer):
         next_state, reward, done, _ = env.step(action)
         ep_reward += reward
         ep_len += 1
-
+        beta_prob = agent.beta_list[option](tensor(next_state)).detach().numpy()
         # Ignore the "done" signal if it comes from hitting the time
         # horizon (that is, when it's an artificial terminal signal
         # that isn't based on the agent's state)
@@ -42,7 +42,7 @@ def train(args, agent, env, replay_buffer, log, tb_writer):
 
         # Store experience to replay buffer
         if args.model_type == "SOC":
-            replay_buffer.store(state, option, action, reward, next_state, d)
+            replay_buffer.store(state, option, action, logp, beta_prob, reward, next_state, d)
         else:
             replay_buffer.store(state, action, reward, next_state, d)
 

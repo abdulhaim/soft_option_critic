@@ -81,12 +81,12 @@ class SoftOptionCritic(nn.Module):
         return bool(option_termination.item())
 
     def get_action(self, option, state):
-        action, _ = self.intra_option_policies[option](state)
-        return action.detach().numpy()
+        action, logp = self.intra_option_policies[option](state)
+        return action.detach().numpy(), logp.detach().numpy()
 
     def compute_loss(self, data):
-        state, option, action, reward, next_state, done = \
-            data['state'], data['option'], data['action'], data['reward'], data['next_state'], data['done']
+        state, option, action, logp, beta_prob, reward, next_state, done = \
+            data['state'], data['option'], data['action'], data['logp'], data['beta_prob'], data['reward'], data['next_state'], data['done']
         ################################################################
         # Computing Intra-Q Function Update
         option = option.flatten().numpy().astype(int)
@@ -111,22 +111,6 @@ class SoftOptionCritic(nn.Module):
             q_inter_targ = torch.min(q1_inter_targ, q2_inter_targ)
             q_inter_targ_current_option = torch.gather(q_inter_targ, 1, option_indices, out=None, sparse_grad=False)
             q_inter_targ_next_option = np.argmax(np.max(q_inter_targ.data.numpy()))
-
-            # Target actions come from *current* policy
-            logp = []
-            beta_prob = []
-            for index in range(len(option)):
-                next_state_element = next_state[index]
-                option_element = option[index]
-                state_element = state[index]
-                pi_action, logp_element = self.intra_option_policies[option_element](state_element)
-                beta_prob_element = self.beta_list[option_element](next_state_element)
-                logp.append(tensor(logp_element))
-                beta_prob.append(tensor(beta_prob_element))
-
-            # Target Q-values
-            logp = tensor(logp)
-            beta_prob = tensor(beta_prob)
 
             # Computing Q-losses
             backup_intra = reward + self.args.gamma * (1 - done) * (((1 - beta_prob) * q_inter_targ_current_option) + (
