@@ -24,9 +24,10 @@ def train(args, agent, env, replay_buffer):
         # Until start_steps have elapsed, randomly sample actions
         # from a uniform distribution for better exploration. Afterwards,
         # use the learned policy.
-        if total_step_count < args.update_after:
-            # TODO Either we should make it as separate def or leave it
-            agent.current_option = agent.get_option(tensor(state), agent.get_epsilon())
+        if total_step_count < args.start_steps:
+            if args.model_type == "SOC":
+                # TODO Either we should make it as separate def or leave it
+                agent.current_option = agent.get_option(tensor(state), agent.get_epsilon())
             action = env.action_space.sample()  # Uniform random sampling from action space for exploration
         else:
             if args.model_type == "SOC":
@@ -37,11 +38,12 @@ def train(args, agent, env, replay_buffer):
         next_state, reward, done, _ = env.step(action)
         ep_reward += reward
         ep_len += 1
-        
-        beta_prob, beta = agent.predict_option_termination(tensor(next_state), agent.current_option)
-        # If term is True, then sample next option
-        if beta:
-            agent.current_option = agent.get_option(tensor(next_state), agent.get_epsilon())
+
+        if args.model_type == "SOC":
+            beta_prob, beta = agent.predict_option_termination(tensor(next_state), agent.current_option)
+            # If term is True, then sample next option
+            if beta:
+                agent.current_option = agent.get_option(tensor(next_state), agent.get_epsilon())
 
         # Ignore the "done" signal if it comes from hitting the time
         # horizon (that is, when it's an artificial terminal signal
@@ -63,7 +65,8 @@ def train(args, agent, env, replay_buffer):
             agent.tb_writer.log_data("episodic_reward", total_step_count, ep_reward)
             state, ep_reward, ep_len = env.reset(), 0, 0
             state = torch.tensor(next_state).float()
-            agent.current_option = agent.get_option(state, agent.get_epsilon())
+            if args.model_type == "SOC":
+                agent.current_option = agent.get_option(state, agent.get_epsilon())
 
         # Update handling
         if total_step_count >= args.update_after and total_step_count % args.update_every == 0:
@@ -140,7 +143,7 @@ if __name__ == '__main__':
     parser.add_argument('--alpha', help='Entropy regularization coefficient', default=0.2)
     parser.add_argument('--polyak', help='averaging for target networks', default=0.995)
     parser.add_argument('--buffer-size', help='max size of the replay buffer', default=1000000)
-    parser.add_argument('--hidden-dim', help='number of units in the hidden layers', default=64)
+    parser.add_argument('--hidden-dim', help='number of units in the hidden layers', default=256)
     parser.add_argument('--batch-size', help='size of minibatch for minibatch-SGD', default=100)
     parser.add_argument("--max-grad-clip", type=float, default=10.0, help="Max norm gradient clipping value")
 
@@ -156,6 +159,8 @@ if __name__ == '__main__':
     parser.add_argument('--max-steps', help='Maximum no of steps', type=int, default=1500000)
     parser.add_argument('--update-after', help='Number of env interactions to collect before starting to updates',
                         type=int, default=1000)
+    parser.add_argument('--start_steps', help='Number of env interactions to collect before starting to updates',
+                        type=int, default=10000)
     parser.add_argument('--update-every', help='update model after certain number steps', type=int, default=50)
 
     # Environment Parameters
@@ -166,10 +171,10 @@ if __name__ == '__main__':
 
     # Plotting Parameters
     parser.add_argument('--log_name', help='Log directory', type=str, default="logs")
-    parser.add_argument('--save-model-every', help='Save model every certain number of steps', type=int, default=200)
+    parser.add_argument('--save-model-every', help='Save model every certain number of steps', type=int, default=100000)
     parser.add_argument('--exp-name', help='Experiment Name', type=str, default="trial_1")
     parser.add_argument('--model_dir', help='Model directory', type=str, default="model/")
-    parser.add_argument('--model_type', help='Model Type', type=str, default="SOC")
+    parser.add_argument('--model_type', help='Model Type', type=str, default="SAC")
 
     args = parser.parse_args()
     main(args)

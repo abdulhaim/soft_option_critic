@@ -11,7 +11,8 @@ from torch.optim import Adam
 from torch.autograd import Variable
 from torch.distributions import Bernoulli
 from misc.torch_utils import tensor, convert_onehot
-from algorithms.soc.model import InterQFunction, IntraQFunction, IntraOptionPolicy, BetaPolicy
+from algorithms.soc.model import InterQFunction, IntraQFunction, \
+                                IntraOptionPolicy, BetaPolicy
 
 
 class SoftOptionCritic(nn.Module):
@@ -103,34 +104,45 @@ class SoftOptionCritic(nn.Module):
         action, logp = self.intra_option_policies[option](state)
         return action.detach().numpy(), logp.detach().numpy()
 
-    def compute_loss(self, data):
-        state, option, action, reward, next_state, done = \
-            data['state'], data['option'], data['action'], data['reward'], data['next_state'], data['done']
+    def compute_loss_beta(self, next_state, option_indices, beta_prob):
+        with torch.no_grad():
+            # Computing Beta Policy Loss
+            q1_pi = self.inter_q_function_1(next_state)
+            q2_pi = self.inter_q_function_2(next_state)
+            q_pi = torch.min(q1_pi, q2_pi)
 
-        ################################################################
-        # Computing Intra-Q Function Update
-        one_hot_option = convert_onehot(option, self.args.option_num)
+            q_pi_current_option = torch.gather(q_pi, 1, option_indices)
+            q_pi_next_option = np.max(q_pi.data.numpy())
+            advantage = q_pi_current_option - q_pi_next_option
 
-        q1_intra = self.intra_q_function_1(torch.cat([state, action, tensor(one_hot_option)], dim=-1))
-        q2_intra = self.intra_q_function_2(torch.cat([state, action, tensor(one_hot_option)], dim=-1))
+        # Beta Policy Loss
+        loss_beta = (Variable(beta_prob, requires_grad=True) * advantage).mean()
+        return loss_beta
 
+    def compute_loss_inter(self, state, option_indices, one_hot_option, current_actions, logp):
         q1_inter_all = self.inter_q_function_1(state)
         q2_inter_all = self.inter_q_function_2(state)
 
-        option_indices = torch.LongTensor(option.numpy().flatten().astype(int))
-        option_indices = option_indices.unsqueeze(-1)
-
         q1_inter = torch.gather(q1_inter_all, 1, option_indices)
         q2_inter = torch.gather(q2_inter_all, 1, option_indices)
-        with torch.no_grad():
-            q1_inter_targ = self.inter_q_function_1_targ(next_state)
-            q2_inter_targ = self.inter_q_function_2_targ(next_state)
-            q_inter_targ = torch.min(q1_inter_targ, q2_inter_targ)
-            q_inter_targ_current_option = torch.gather(q_inter_targ, 1, option_indices)
-            next_option = torch.LongTensor(self.get_option(next_state, self.get_epsilon(), gradient=True))
-            next_option = next_option.unsqueeze(-1)
 
-            q_inter_targ_next_option = torch.gather(q_inter_targ, 1, next_option)
+        with torch.no_grad():
+            # Computing Inter-Q Function Loss
+            q1_intra_targ = self.intra_q_function_1_targ(
+                torch.cat([state, current_actions, tensor(one_hot_option)], dim=-1))
+            q2_intra_targ = self.intra_q_function_2_targ(
+                torch.cat([state, current_actions, tensor(one_hot_option)], dim=-1))
+            backup_inter = torch.min(q1_intra_targ, q2_intra_targ) - self.args.alpha * logp
+
+        # Inter-Q Function Loss
+        loss_inter_q1 = ((q1_inter - backup_inter) ** 2).mean()
+        loss_inter_q2 = ((q2_inter - backup_inter) ** 2).mean()
+        loss_inter_q = loss_inter_q1 + loss_inter_q2
+        return loss_inter_q
+
+    def compute_loss_intra(self, state, action, option, one_hot_option, option_indices, next_state, reward, done):
+        q1_intra = self.intra_q_function_1(torch.cat([state, action, tensor(one_hot_option)], dim=-1))
+        q2_intra = self.intra_q_function_2(torch.cat([state, action, tensor(one_hot_option)], dim=-1))
 
         beta_prob = []
         logp = []
@@ -150,40 +162,21 @@ class SoftOptionCritic(nn.Module):
         current_actions = torch.stack(current_actions)
 
         with torch.no_grad():
-            # Computing Q-losses
+            q1_inter_targ = self.inter_q_function_1_targ(next_state)
+            q2_inter_targ = self.inter_q_function_2_targ(next_state)
+            q_inter_targ = torch.min(q1_inter_targ, q2_inter_targ)
+            q_inter_targ_current_option = torch.gather(q_inter_targ, 1, option_indices)
+            next_option = torch.LongTensor(self.get_option(next_state, self.get_epsilon(), gradient=True))
+            next_option = next_option.unsqueeze(-1)
+
+            q_inter_targ_next_option = torch.gather(q_inter_targ, 1, next_option)
+
             backup_intra = reward + self.args.gamma * (1. - done) * (((1. - beta_prob) * q_inter_targ_current_option) +
                                                                      (beta_prob * q_inter_targ_next_option))
-            ################################################################
-            # Computing Beta Policy Loss
-            q1_pi = self.inter_q_function_1(next_state)
-            q2_pi = self.inter_q_function_2(next_state)
-            q_pi = torch.min(q1_pi, q2_pi)
-
-            q_pi_current_option = torch.gather(q_pi, 1, option_indices)
-            q_pi_next_option = np.max(q_pi.data.numpy())
-            advantage = q_pi_current_option - q_pi_next_option
-
-            ################################################################
-            # Computing Inter-Q Function Loss
-            q1_intra_targ = self.intra_q_function_1_targ(
-                torch.cat([state, current_actions, tensor(one_hot_option)], dim=-1))
-            q2_intra_targ = self.intra_q_function_2_targ(
-                torch.cat([state, current_actions, tensor(one_hot_option)], dim=-1))
-            backup_inter = torch.min(q1_intra_targ, q2_intra_targ) - self.args.alpha * logp
-            ################################################################
-
         # Intra-Q Function Loss
         loss_intra_q1 = ((q1_intra - backup_intra) ** 2).mean()
         loss_intra_q2 = ((q2_intra - backup_intra) ** 2).mean()
         loss_intra_q = loss_intra_q1 + loss_intra_q2
-
-        # Beta Policy Loss
-        loss_beta = (Variable(beta_prob, requires_grad=True) * advantage).mean()
-
-        # Inter-Q Function Loss
-        loss_inter_q1 = ((q1_inter - backup_inter) ** 2).mean()
-        loss_inter_q2 = ((q2_inter - backup_inter) ** 2).mean()
-        loss_inter_q = loss_inter_q1 + loss_inter_q2
 
         # Intra-Option Policy Loss
         # the replay buffer, so we should not another sampling, which can be
@@ -191,7 +184,7 @@ class SoftOptionCritic(nn.Module):
         q_pi = torch.min(q1_intra, q2_intra).detach()
         loss_intra_pi = (self.args.alpha * Variable(logp, requires_grad=True) - q_pi).mean()
 
-        return loss_inter_q, loss_intra_q, loss_intra_pi, loss_beta
+        return loss_intra_q, loss_intra_pi, current_actions, logp, beta_prob
 
     def update_loss_soc(self, data):
         # Clear all for parameters
@@ -200,9 +193,17 @@ class SoftOptionCritic(nn.Module):
         self.intra_policy_optim.zero_grad()
         self.beta_optim.zero_grad()
 
+        state, option, action, reward, next_state, done = \
+            data['state'], data['option'], data['action'], data['reward'], data['next_state'], data['done']
+
+        one_hot_option = convert_onehot(option, self.args.option_num)
+        option_indices = torch.LongTensor(option.numpy().flatten().astype(int))
+        option_indices = option_indices.unsqueeze(-1)
+
         # Compute losses
-        # TODO make each function for each loss
-        loss_inter_q, loss_intra_q, loss_intra_pi, loss_beta = self.compute_loss(data)
+        loss_intra_q, loss_intra_pi, current_actions, logp, beta_prob = self.compute_loss_intra(state, action, option, one_hot_option, option_indices, next_state, reward, done)
+        loss_inter_q = self.compute_loss_inter(state, option_indices, one_hot_option, current_actions, logp)
+        loss_beta = self.compute_loss_beta(next_state, option_indices, beta_prob)
 
         # Updating Inter-Q Functions
         loss_inter_q.backward(retain_graph=True)
@@ -218,7 +219,7 @@ class SoftOptionCritic(nn.Module):
                 p_targ.data.mul_(self.args.polyak)
                 p_targ.data.add_((1 - self.args.polyak) * p.data)
 
-        #######################################################################################################
+        ####################################################
 
         # Updating Intra-Q Functions
         loss_intra_q.backward(retain_graph=True)

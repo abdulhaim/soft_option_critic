@@ -2,6 +2,7 @@ import torch
 import numpy as np
 from misc.torch_utils import combined_shape
 
+
 class ReplayBufferSOC(object):
     """
     A simple FIFO experience replay buffer for SAC agents.

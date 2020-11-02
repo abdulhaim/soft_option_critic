@@ -8,6 +8,7 @@ from torch import nn as nn
 import numpy as np
 import torch.nn.functional as F
 
+
 class InterQFunction(torch.nn.Module):
     """
     There will only be one of these q functions
