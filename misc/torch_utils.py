@@ -47,3 +47,10 @@ def tensor(x):
         return x.to(device).float()
     x = torch.tensor(x, device=device)
     return x.to(device).float()
+
+def convert_onehot(x, dim):
+    x = x.flatten().numpy().astype(int)
+    one_hot = np.zeros((x.size, dim))
+    rows = np.arange(len(x))
+    one_hot[rows, x] = 1
+    return one_hot

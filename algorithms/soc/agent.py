@@ -10,7 +10,7 @@ from copy import deepcopy
 from torch.optim import Adam
 from torch.autograd import Variable
 from torch.distributions import Bernoulli
-from misc.torch_utils import tensor
+from misc.torch_utils import tensor, convert_onehot
 from algorithms.soc.model import InterQFunction, IntraQFunction, IntraOptionPolicy, BetaPolicy
 
 
@@ -79,19 +79,17 @@ class SoftOptionCritic(nn.Module):
         self.total_steps += 1
         return eps
 
-    def get_option(self, q, eta):  # soft-epsilon strategy
-        """
-        Args:
-            is_reset (bool): Denotes whether beginning of episode or not. Default: False
-        """
+    def get_option(self, state, eta):  # soft-epsilon strategy
         if random.random() > eta:
-            return np.argmax(np.max(q.data.numpy()))
+            q_function = torch.min(self.inter_q_function_1(state), self.inter_q_function_2(state))
+            option = np.argmax(np.max(q_function.data.numpy()))
         else:
-            return random.randint(0, self.option_num - 1)
+            option = random.randint(0, self.option_num - 1)
+        self.tb_writer.log_data("option", self.total_steps, option)
+        return option
 
     def predict_option_termination(self, state, option):
         termination = self.beta_list[option](state)
-        # TODO Double check Bernoulli (1 - termination)
         option_termination = Bernoulli(termination).sample()
         return termination, bool(option_termination.item())
 
@@ -100,63 +98,70 @@ class SoftOptionCritic(nn.Module):
         return action.detach().numpy(), logp.detach().numpy()
 
     def compute_loss(self, data):
-        state, option, action, logp, beta_prob, reward, next_state, done = \
-            data['state'], data['option'], data['action'], data['logp'], data['beta_prob'], data['reward'], data['next_state'], data['done']
+        state, option, action, reward, next_state, done = \
+            data['state'], data['option'], data['action'], data['reward'], data['next_state'], data['done']
 
         ################################################################
         # Computing Intra-Q Function Update
-        option = option.flatten().numpy().astype(int)
-        # TODO I would put to_onehot misc.utils
-        one_hot = np.zeros((option.size, self.args.option_num))
-        rows = np.arange(len(option))
-        one_hot[rows, option] = 1
+        one_hot_option = convert_onehot(option, self.args.option_num)
 
-        q1_intra = self.intra_q_function_1(torch.cat([state, action, tensor(one_hot)], dim=-1))
-        q2_intra = self.intra_q_function_2(torch.cat([state, action, tensor(one_hot)], dim=-1))
+        q1_intra = self.intra_q_function_1(torch.cat([state, action, tensor(one_hot_option)], dim=-1))
+        q2_intra = self.intra_q_function_2(torch.cat([state, action, tensor(one_hot_option)], dim=-1))
 
         q1_inter_all = self.inter_q_function_1(state)
         q2_inter_all = self.inter_q_function_2(state)
 
-        option_indices = torch.LongTensor(option)
+        option_indices = torch.LongTensor(option.numpy().flatten().astype(int))
         option_indices = option_indices.unsqueeze(-1)
-        q1_inter = torch.gather(q1_inter_all, 1, option_indices, out=None, sparse_grad=False)
-        q2_inter = torch.gather(q2_inter_all, 1, option_indices, out=None, sparse_grad=False)
 
+        q1_inter = torch.gather(q1_inter_all, 1, option_indices)
+        q2_inter = torch.gather(q2_inter_all, 1, option_indices)
         with torch.no_grad():
             q1_inter_targ = self.inter_q_function_1_targ(next_state)
             q2_inter_targ = self.inter_q_function_2_targ(next_state)
             q_inter_targ = torch.min(q1_inter_targ, q2_inter_targ)
-            q_inter_targ_current_option = torch.gather(q_inter_targ, 1, option_indices, out=None, sparse_grad=False)
-            # TODO next_option is sampled again using the soft epsilon
-            # And then based on that, compute the Q_inter_targ_next_option
-            q_inter_targ_next_option = np.argmax(np.max(q_inter_targ.data.numpy()))
+            q_inter_targ_current_option = torch.gather(q_inter_targ, 1, option_indices)
+            next_option = torch.LongTensor(np.asarray([self.get_option(next_state, self.get_epsilon())]*100))
+            next_option = next_option.unsqueeze(-1)
 
+            q_inter_targ_next_option = torch.gather(q_inter_targ, 1, next_option)
+
+        beta_prob = []
+        logp = []
+        current_actions = []
+        for i in range(len(option)):
+            option_element = option[i][0].to(dtype=torch.long)
+            next_state_element = next_state[i]
+            state_element = state[i]
+            beta_prob_element, termination = self.predict_option_termination(tensor(next_state_element), option_element)
+            beta_prob.append(beta_prob_element)
+            current_action_element, logp_element = self.intra_option_policies[option_element](state_element)
+            logp.append(logp_element)
+            current_actions.append(current_action_element)
+
+        beta_prob = torch.tensor(beta_prob)
+        logp = torch.tensor(logp)
+        current_actions = torch.stack(current_actions)
+
+        with torch.no_grad():
             # Computing Q-losses
-            # TODO IMPORTANT! beta_prob SHOULD NOT BE SAMPLED FROM REPLAY BUFFER.
-            # SHOULD BE COMPUTED ONLINE
-            backup_intra = reward + self.args.gamma * (1. - done) * (((1. - beta_prob) * q_inter_targ_current_option) + (
-                beta_prob * q_inter_targ_next_option))
-
+            backup_intra = reward + self.args.gamma * (1. - done) * (((1. - beta_prob) * q_inter_targ_current_option) +
+                                                                     (beta_prob * q_inter_targ_next_option))
             ################################################################
             # Computing Beta Policy Loss
             q1_pi = self.inter_q_function_1(next_state)
             q2_pi = self.inter_q_function_2(next_state)
             q_pi = torch.min(q1_pi, q2_pi)
 
-            q_pi_current_option = torch.gather(q_pi, 1, option_indices, out=None, sparse_grad=False)
-            q_pi_next_option = np.argmax(np.max(q_pi.data.numpy()))
+            q_pi_current_option = torch.gather(q_pi, 1, option_indices)
+            q_pi_next_option = np.max(q_pi.data.numpy())
             advantage = q_pi_current_option - q_pi_next_option
 
             ################################################################
             # Computing Inter-Q Function Loss
-            # TODO 100 hard-coding remove
-            # TODO IMPORTANT! ACTION SHOULD NOT BE SAMPLED FROM REPLAY BUFFER.
-            # SHOULD BE COMPUTED ONLINE
-            # TODO IMPORTANT! LOGP SHOULD NOT BE SAMPLED FROM REPLAY BUFFER.
-            # SHOULD BE COMPUTED ONLINE
-            q1_intra_targ = self.intra_q_function_1_targ(torch.cat([state, action, tensor(one_hot)], dim=-1))
-            q2_intra_targ = self.intra_q_function_2_targ(torch.cat([state, action, tensor(one_hot)], dim=-1))
-            backup_inter = torch.min(q1_intra_targ, q2_intra_targ) - self.args.alpha * logp.view(100, 1)
+            q1_intra_targ = self.intra_q_function_1_targ(torch.cat([state, current_actions, tensor(one_hot_option)], dim=-1))
+            q2_intra_targ = self.intra_q_function_2_targ(torch.cat([state, current_actions, tensor(one_hot_option)], dim=-1))
+            backup_inter = torch.min(q1_intra_targ, q2_intra_targ) - self.args.alpha * logp
             ################################################################
 
         # Intra-Q Function Loss
@@ -165,8 +170,6 @@ class SoftOptionCritic(nn.Module):
         loss_intra_q = loss_intra_q1 + loss_intra_q2
 
         # Beta Policy Loss
-        # TODO IMPORTANT! beta_prob SHOULD NOT BE SAMPLED FROM REPLAY BUFFER.
-        # SHOULD BE COMPUTED ONLINE
         loss_beta = (Variable(beta_prob, requires_grad=True) * Variable(advantage, requires_grad=True)).mean()
 
         # Inter-Q Function Loss
@@ -175,13 +178,10 @@ class SoftOptionCritic(nn.Module):
         loss_inter_q = loss_inter_q1 + loss_inter_q2
 
         # Intra-Option Policy Loss
-        # TODO IMPORTANT! LOGP SHOULD NOT BE SAMPLED FROM REPLAY BUFFER.
-        # SHOULD BE COMPUTED ONLINE
-        # TODO IMPORTANT! logp here is conditioned on the action sampled from
         # the replay buffer, so we should not another sampling, which can be
         # different from the action sampled from the buffer
         q_pi = torch.min(q1_intra, q2_intra).detach()
-        loss_intra_pi = (self.args.alpha * logp - q_pi).mean()
+        loss_intra_pi = (self.args.alpha * Variable(logp, requires_grad=True) - q_pi).mean()
 
         return loss_inter_q, loss_intra_q, loss_intra_pi, loss_beta
 

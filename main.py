@@ -18,8 +18,7 @@ def train(args, agent, env, replay_buffer):
 
     # Sample initial option for SOC
     if args.model_type == "SOC":
-        # TODO Sample new option
-        agent.current_option = agent.get_option(state, agent.get_epsilon(), is_reset=True)
+        agent.current_option = agent.get_option(state, agent.get_epsilon())
 
     for total_step_count in range(args.total_step_num):
         # Until start_steps have elapsed, randomly sample actions
@@ -29,7 +28,6 @@ def train(args, agent, env, replay_buffer):
             # TODO Either we should make it as separate def or leave it
             agent.current_option = agent.get_option(tensor(state), agent.get_epsilon())
             action = env.action_space.sample()  # Uniform random sampling from action space for exploration
-            logp = 1
         else:
             if args.model_type == "SOC":
                 action, logp = agent.get_action(agent.current_option, state)
@@ -40,12 +38,10 @@ def train(args, agent, env, replay_buffer):
         ep_reward += reward
         ep_len += 1
         
-        beta_prob, beta = agent.predict_option_termination(next_state, agent.current_option)
+        beta_prob, beta = agent.predict_option_termination(tensor(next_state), agent.current_option)
         # If term is True, then sample next option
-        if beta == True:
-            agent.current_option = agent.get_option(next_state, agent.get_epsilon())
-            # TODO Move logging inside the get_option function
-            agent.tb_writer.log_data("option", total_step_count, agent.current_option)
+        if beta:
+            agent.current_option = agent.get_option(tensor(next_state), agent.get_epsilon())
 
         # Ignore the "done" signal if it comes from hitting the time
         # horizon (that is, when it's an artificial terminal signal
@@ -54,7 +50,7 @@ def train(args, agent, env, replay_buffer):
 
         # Store experience to replay buffer
         if args.model_type == "SOC":
-            replay_buffer.store(state, agent.current_option, action, logp, beta_prob, reward, next_state, d)
+            replay_buffer.store(state, agent.current_option, action, reward, next_state, d)
         else:
             replay_buffer.store(state, action, reward, next_state, d)
 
