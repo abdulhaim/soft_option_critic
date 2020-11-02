@@ -98,7 +98,7 @@ class IntraOptionPolicy(torch.nn.Module):
         self.apply(weights_init)
         self.train()
 
-    def forward(self, inputs):
+    def forward(self, inputs, pi_action=None):
         x = self.nonlin1(self.layer1(inputs))
         x = self.nonlin2(self.layer2(x))
         mu = self.layer3_mu(x)
@@ -106,7 +106,8 @@ class IntraOptionPolicy(torch.nn.Module):
         scale = torch.exp(torch.clamp(std, min=self.min_log_std))
 
         pi_distribution = Normal(loc=mu, scale=scale)
-        pi_action = pi_distribution.rsample()
+        if pi_action is None:
+            pi_action = pi_distribution.rsample()
 
         logp_pi = pi_distribution.log_prob(pi_action).sum()
         logp_pi -= (2 * (np.log(2) - pi_action - F.softplus(-2 * pi_action))).sum(axis=-1)

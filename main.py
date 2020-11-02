@@ -10,34 +10,43 @@ import random
 from misc.utils import set_log
 from misc.torch_utils import tensor
 
+
 def train(args, agent, env, replay_buffer):
     ep_reward = 0
     ep_len = 0
     state = tensor(env.reset())
+
+    # Sample initial option for SOC
+    if args.model_type == "SOC":
+        # TODO Sample new option
+        agent.current_option = agent.get_option(state, agent.get_epsilon(), is_reset=True)
+
     for total_step_count in range(args.total_step_num):
         # Until start_steps have elapsed, randomly sample actions
         # from a uniform distribution for better exploration. Afterwards,
         # use the learned policy.
-
         if total_step_count < args.update_after:
+            # TODO Either we should make it as separate def or leave it
             agent.current_option = agent.get_option(tensor(state), agent.get_epsilon())
             action = env.action_space.sample()  # Uniform random sampling from action space for exploration
             logp = 1
         else:
             if args.model_type == "SOC":
-                if agent.predict_option_termination(state, agent.current_option) == 1:
-                    agent.current_option = agent.get_option(state, agent.get_epsilon())
-                    agent.tb_writer.log_data("option", total_step_count, agent.current_option)
-
                 action, logp = agent.get_action(agent.current_option, state)
-
             else:
                 action, _ = agent.get_action(state)
 
         next_state, reward, done, _ = env.step(action)
         ep_reward += reward
         ep_len += 1
-        beta_prob = agent.beta_list[agent.current_option](tensor(next_state)).detach().numpy()
+        
+        beta_prob, beta = agent.predict_option_termination(next_state, agent.current_option)
+        # If term is True, then sample next option
+        if beta == True:
+            agent.current_option = agent.get_option(next_state, agent.get_epsilon())
+            # TODO Move logging inside the get_option function
+            agent.tb_writer.log_data("option", total_step_count, agent.current_option)
+
         # Ignore the "done" signal if it comes from hitting the time
         # horizon (that is, when it's an artificial terminal signal
         # that isn't based on the agent's state)
@@ -58,6 +67,7 @@ def train(args, agent, env, replay_buffer):
             agent.tb_writer.log_data("episodic_reward", total_step_count, ep_reward)
             state, ep_reward, ep_len = env.reset(), 0, 0
             state = torch.tensor(next_state).float()
+            agent.current_option = agent.get_option(state, agent.get_epsilon())
 
         # Update handling
         if total_step_count >= args.update_after and total_step_count % args.update_every == 0:
@@ -90,7 +100,8 @@ def main(args):
     np.random.seed(args.random_seed)
     torch.manual_seed(args.random_seed)
     torch.set_num_threads(8)
-    #Set env
+
+    # Set env
     env = BugCrippledEnv(cripple_prob=1.0)
     env.seed(args.random_seed)
 
@@ -120,7 +131,9 @@ def main(args):
             log=log)
         replay_buffer = ReplayBufferSAC(obs_dim=agent.obs_dim, act_dim=agent.action_dim, size=args.buffer_size)
 
+    # pre_train(args, agent, env, replay_buffer)  TODO Purely random is here
     train(args, agent, env, replay_buffer)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='provide arguments for AdInfoHRLTD3 algorithms')

@@ -55,10 +55,12 @@ class SoftOptionCritic(nn.Module):
             self.inter_q_function_1_targ.parameters(),
             self.inter_q_function_2_targ.parameters())
 
-        self.q_params_intra = itertools.chain(self.intra_q_function_1.parameters(),
-                                              self.intra_q_function_1.parameters())
-        self.q_params_intra_target = itertools.chain(self.intra_q_function_1_targ.parameters(),
-                                                     self.intra_q_function_2_targ.parameters())
+        self.q_params_intra = itertools.chain(
+            self.intra_q_function_1.parameters(),
+            self.intra_q_function_1.parameters())
+        self.q_params_intra_target = itertools.chain(
+            self.intra_q_function_1_targ.parameters(),
+            self.intra_q_function_2_targ.parameters())
 
         self.intra_policy_params = itertools.chain(*[policy.parameters() for policy in self.intra_option_policies])
         self.beta_params = itertools.chain(*[policy.parameters() for policy in self.beta_list])
@@ -78,6 +80,10 @@ class SoftOptionCritic(nn.Module):
         return eps
 
     def get_option(self, q, eta):  # soft-epsilon strategy
+        """
+        Args:
+            is_reset (bool): Denotes whether beginning of episode or not. Default: False
+        """
         if random.random() > eta:
             return np.argmax(np.max(q.data.numpy()))
         else:
@@ -85,8 +91,9 @@ class SoftOptionCritic(nn.Module):
 
     def predict_option_termination(self, state, option):
         termination = self.beta_list[option](state)
+        # TODO Double check Bernoulli (1 - termination)
         option_termination = Bernoulli(termination).sample()
-        return bool(option_termination.item())
+        return termination, bool(option_termination.item())
 
     def get_action(self, option, state):
         action, logp = self.intra_option_policies[option](state)
@@ -95,9 +102,11 @@ class SoftOptionCritic(nn.Module):
     def compute_loss(self, data):
         state, option, action, logp, beta_prob, reward, next_state, done = \
             data['state'], data['option'], data['action'], data['logp'], data['beta_prob'], data['reward'], data['next_state'], data['done']
+
         ################################################################
         # Computing Intra-Q Function Update
         option = option.flatten().numpy().astype(int)
+        # TODO I would put to_onehot misc.utils
         one_hot = np.zeros((option.size, self.args.option_num))
         rows = np.arange(len(option))
         one_hot[rows, option] = 1
@@ -118,11 +127,15 @@ class SoftOptionCritic(nn.Module):
             q2_inter_targ = self.inter_q_function_2_targ(next_state)
             q_inter_targ = torch.min(q1_inter_targ, q2_inter_targ)
             q_inter_targ_current_option = torch.gather(q_inter_targ, 1, option_indices, out=None, sparse_grad=False)
+            # TODO next_option is sampled again using the soft epsilon
+            # And then based on that, compute the Q_inter_targ_next_option
             q_inter_targ_next_option = np.argmax(np.max(q_inter_targ.data.numpy()))
 
             # Computing Q-losses
-            backup_intra = reward + self.args.gamma * (1 - done) * (((1 - beta_prob) * q_inter_targ_current_option) + (
-                    beta_prob * q_inter_targ_next_option))
+            # TODO IMPORTANT! beta_prob SHOULD NOT BE SAMPLED FROM REPLAY BUFFER.
+            # SHOULD BE COMPUTED ONLINE
+            backup_intra = reward + self.args.gamma * (1. - done) * (((1. - beta_prob) * q_inter_targ_current_option) + (
+                beta_prob * q_inter_targ_next_option))
 
             ################################################################
             # Computing Beta Policy Loss
@@ -136,6 +149,11 @@ class SoftOptionCritic(nn.Module):
 
             ################################################################
             # Computing Inter-Q Function Loss
+            # TODO 100 hard-coding remove
+            # TODO IMPORTANT! ACTION SHOULD NOT BE SAMPLED FROM REPLAY BUFFER.
+            # SHOULD BE COMPUTED ONLINE
+            # TODO IMPORTANT! LOGP SHOULD NOT BE SAMPLED FROM REPLAY BUFFER.
+            # SHOULD BE COMPUTED ONLINE
             q1_intra_targ = self.intra_q_function_1_targ(torch.cat([state, action, tensor(one_hot)], dim=-1))
             q2_intra_targ = self.intra_q_function_2_targ(torch.cat([state, action, tensor(one_hot)], dim=-1))
             backup_inter = torch.min(q1_intra_targ, q2_intra_targ) - self.args.alpha * logp.view(100, 1)
@@ -147,6 +165,8 @@ class SoftOptionCritic(nn.Module):
         loss_intra_q = loss_intra_q1 + loss_intra_q2
 
         # Beta Policy Loss
+        # TODO IMPORTANT! beta_prob SHOULD NOT BE SAMPLED FROM REPLAY BUFFER.
+        # SHOULD BE COMPUTED ONLINE
         loss_beta = (Variable(beta_prob, requires_grad=True) * Variable(advantage, requires_grad=True)).mean()
 
         # Inter-Q Function Loss
@@ -155,7 +175,12 @@ class SoftOptionCritic(nn.Module):
         loss_inter_q = loss_inter_q1 + loss_inter_q2
 
         # Intra-Option Policy Loss
-        q_pi = torch.min(q1_intra, q2_intra)
+        # TODO IMPORTANT! LOGP SHOULD NOT BE SAMPLED FROM REPLAY BUFFER.
+        # SHOULD BE COMPUTED ONLINE
+        # TODO IMPORTANT! logp here is conditioned on the action sampled from
+        # the replay buffer, so we should not another sampling, which can be
+        # different from the action sampled from the buffer
+        q_pi = torch.min(q1_intra, q2_intra).detach()
         loss_intra_pi = (self.args.alpha * logp - q_pi).mean()
 
         return loss_inter_q, loss_intra_q, loss_intra_pi, loss_beta
@@ -168,6 +193,7 @@ class SoftOptionCritic(nn.Module):
         self.beta_optim.zero_grad()
 
         # Compute losses
+        # TODO make each function for each loss
         loss_inter_q, loss_intra_q, loss_intra_pi, loss_beta = self.compute_loss(data)
 
         # Updating Inter-Q Functions
