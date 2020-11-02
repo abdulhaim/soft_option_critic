@@ -39,12 +39,6 @@ def train(args, agent, env, replay_buffer):
         ep_reward += reward
         ep_len += 1
 
-        if args.model_type == "SOC":
-            beta_prob, beta = agent.predict_option_termination(tensor(next_state), agent.current_option)
-            # If term is True, then sample next option
-            if beta:
-                agent.current_option = agent.get_option(tensor(next_state), agent.get_epsilon())
-
         # Ignore the "done" signal if it comes from hitting the time
         # horizon (that is, when it's an artificial terminal signal
         # that isn't based on the agent's state)
@@ -55,6 +49,12 @@ def train(args, agent, env, replay_buffer):
             replay_buffer.store(state, agent.current_option, action, reward, next_state, d)
         else:
             replay_buffer.store(state, action, reward, next_state, d)
+
+        if args.model_type == "SOC":
+            beta_prob, beta = agent.predict_option_termination(tensor(next_state), agent.current_option)
+            # If term is True, then sample next option
+            if beta:
+                agent.current_option = agent.get_option(tensor(next_state), agent.get_epsilon())
 
         # For next timestep
         state = torch.tensor(next_state).float()

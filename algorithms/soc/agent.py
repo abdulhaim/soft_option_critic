@@ -11,8 +11,7 @@ from torch.optim import Adam
 from torch.autograd import Variable
 from torch.distributions import Bernoulli
 from misc.torch_utils import tensor, convert_onehot
-from algorithms.soc.model import InterQFunction, IntraQFunction, \
-                                IntraOptionPolicy, BetaPolicy
+from algorithms.soc.model import InterQFunction, IntraQFunction, IntraOptionPolicy, BetaPolicy
 
 
 class SoftOptionCritic(nn.Module):
@@ -116,7 +115,8 @@ class SoftOptionCritic(nn.Module):
             advantage = q_pi_current_option - q_pi_next_option
 
         # Beta Policy Loss
-        loss_beta = (Variable(beta_prob, requires_grad=True) * advantage).mean()
+        # TODO Double check whether conversion to Variable is necessary
+        loss_beta = (Variable(beta_prob, requires_grad=True) * advantage.detach()).mean()
         return loss_beta
 
     def compute_loss_inter(self, state, option_indices, one_hot_option, current_actions, logp):
@@ -144,9 +144,7 @@ class SoftOptionCritic(nn.Module):
         q1_intra = self.intra_q_function_1(torch.cat([state, action, tensor(one_hot_option)], dim=-1))
         q2_intra = self.intra_q_function_2(torch.cat([state, action, tensor(one_hot_option)], dim=-1))
 
-        beta_prob = []
-        logp = []
-        current_actions = []
+        beta_prob, logp, current_actions = [], [], []
         for i in range(len(option)):
             option_element = option[i][0].to(dtype=torch.long)
             next_state_element = next_state[i]
@@ -157,6 +155,7 @@ class SoftOptionCritic(nn.Module):
             logp.append(logp_element)
             current_actions.append(current_action_element)
 
+        # TODO torch.stack instead torch.tensor
         beta_prob = torch.tensor(beta_prob)
         logp = torch.tensor(logp)
         current_actions = torch.stack(current_actions)
@@ -201,7 +200,8 @@ class SoftOptionCritic(nn.Module):
         option_indices = option_indices.unsqueeze(-1)
 
         # Compute losses
-        loss_intra_q, loss_intra_pi, current_actions, logp, beta_prob = self.compute_loss_intra(state, action, option, one_hot_option, option_indices, next_state, reward, done)
+        loss_intra_q, loss_intra_pi, current_actions, logp, beta_prob = self.compute_loss_intra(
+            state, action, option, one_hot_option, option_indices, next_state, reward, done)
         loss_inter_q = self.compute_loss_inter(state, option_indices, one_hot_option, current_actions, logp)
         loss_beta = self.compute_loss_beta(next_state, option_indices, beta_prob)
 
