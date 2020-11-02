@@ -146,7 +146,7 @@ if __name__ == '__main__':
 
     # Option Specific Parameters
     parser.add_argument('--eps-start', type=float, default=1.0, help=('Starting value for epsilon.'))
-    parser.add_argument('--eps-min', type=float, default=.1, help='Minimum epsilon.')
+    parser.add_argument('--eps-min', type=float, default=.15, help='Minimum epsilon.')
     parser.add_argument('--eps-decay', type=float, default=500000, help=('Number of steps to minimum epsilon.'))
     parser.add_argument('--option-num', help='number of options', default=4)
 

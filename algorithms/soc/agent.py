@@ -73,20 +73,26 @@ class SoftOptionCritic(nn.Module):
         self.iteration = 0
         self.total_steps = 0
 
-    def get_epsilon(self):
-        eps = self.args.eps_min + (self.args.eps_start - self.args.eps_min) * exp(-self.total_steps / self.args.eps_decay)
-        self.tb_writer.log_data("epsilon", self.total_steps, eps)
+    def get_epsilon(self, decay=False):
+        if decay:
+            eps = self.args.eps_min + (self.args.eps_start - self.args.eps_min) * exp(
+                -self.total_steps / self.args.eps_decay)
+            self.tb_writer.log_data("epsilon", self.total_steps, eps)
+        else:
+            eps = self.args.eps_min
         self.total_steps += 1
         return eps
 
-    def get_option(self, state, eta):  # soft-epsilon strategy
-        if random.random() > eta:
-            q_function = torch.min(self.inter_q_function_1(state), self.inter_q_function_2(state))
-            option = np.argmax(np.max(q_function.data.numpy()))
+    def get_option(self, state, eta, gradient=False):  # soft-epsilon strategy
+        q_function = torch.min(self.inter_q_function_1(state), self.inter_q_function_2(state))
+        option = np.argmax(q_function.data.numpy(), axis=-1)
+        if gradient:
+            return option
         else:
-            option = random.randint(0, self.option_num - 1)
-        self.tb_writer.log_data("option", self.total_steps, option)
-        return option
+            if random.random() < eta:
+                option = random.randint(0, self.option_num - 1)
+            self.tb_writer.log_data("option", self.total_steps, option)
+            return option
 
     def predict_option_termination(self, state, option):
         termination = self.beta_list[option](state)
@@ -121,7 +127,7 @@ class SoftOptionCritic(nn.Module):
             q2_inter_targ = self.inter_q_function_2_targ(next_state)
             q_inter_targ = torch.min(q1_inter_targ, q2_inter_targ)
             q_inter_targ_current_option = torch.gather(q_inter_targ, 1, option_indices)
-            next_option = torch.LongTensor(np.asarray([self.get_option(next_state, self.get_epsilon())]*100))
+            next_option = torch.LongTensor(self.get_option(next_state, self.get_epsilon(), gradient=True))
             next_option = next_option.unsqueeze(-1)
 
             q_inter_targ_next_option = torch.gather(q_inter_targ, 1, next_option)
@@ -159,8 +165,10 @@ class SoftOptionCritic(nn.Module):
 
             ################################################################
             # Computing Inter-Q Function Loss
-            q1_intra_targ = self.intra_q_function_1_targ(torch.cat([state, current_actions, tensor(one_hot_option)], dim=-1))
-            q2_intra_targ = self.intra_q_function_2_targ(torch.cat([state, current_actions, tensor(one_hot_option)], dim=-1))
+            q1_intra_targ = self.intra_q_function_1_targ(
+                torch.cat([state, current_actions, tensor(one_hot_option)], dim=-1))
+            q2_intra_targ = self.intra_q_function_2_targ(
+                torch.cat([state, current_actions, tensor(one_hot_option)], dim=-1))
             backup_inter = torch.min(q1_intra_targ, q2_intra_targ) - self.args.alpha * logp
             ################################################################
 
@@ -170,7 +178,7 @@ class SoftOptionCritic(nn.Module):
         loss_intra_q = loss_intra_q1 + loss_intra_q2
 
         # Beta Policy Loss
-        loss_beta = (Variable(beta_prob, requires_grad=True) * Variable(advantage, requires_grad=True)).mean()
+        loss_beta = (Variable(beta_prob, requires_grad=True) * advantage).mean()
 
         # Inter-Q Function Loss
         loss_inter_q1 = ((q1_inter - backup_inter) ** 2).mean()
