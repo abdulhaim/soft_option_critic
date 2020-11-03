@@ -30,4 +30,4 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGLEW.so
 # Begin experiment
 cd $DIR
 python3.6 main.py \
---model_type "SAC"
+--model_type "SOC"

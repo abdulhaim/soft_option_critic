@@ -101,7 +101,7 @@ class IntraOptionPolicy(torch.nn.Module):
         self.apply(weights_init)
         self.train()
 
-    def forward(self, inputs, pi_action=None):
+    def forward(self, inputs):
         x = self.nonlin1(self.layer1(inputs))
         x = self.nonlin2(self.layer2(x))
         mu = self.layer3_mu(x)
@@ -150,3 +150,26 @@ class BetaPolicy(torch.nn.Module):
         x = self.nonlin2(self.layer2(x))
         x = self.layer3(x)
         return torch.sigmoid(x)
+
+#
+class SOCModel(nn.Module):
+    def __init__(self, obs_dim, action_dim, hidden_dim, option_num, act_limit):
+        super(SOCModel, self).__init__()
+        # Inter-Q Function Definitions
+        self.inter_q_function_1 = InterQFunction(obs_dim, option_num, hidden_dim)
+        self.inter_q_function_2 = InterQFunction(obs_dim, option_num, hidden_dim)
+
+        # Intra-Q Function Definitions
+        self.intra_q_function_1 = IntraQFunction(obs_dim, action_dim, option_num, hidden_dim)
+        self.intra_q_function_2 = IntraQFunction(obs_dim, action_dim, option_num, hidden_dim)
+
+        self.beta_list = []
+        self.intra_option_policies = []
+        self.intra_policy_params = []
+
+        # Policy Definitions
+        for option_index in range(option_num):
+            self.beta_list.append(BetaPolicy(obs_dim, hidden_dim))
+            self.intra_option_policies.append(
+                IntraOptionPolicy(obs_dim, action_dim, hidden_dim, act_limit))
+

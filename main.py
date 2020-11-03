@@ -4,7 +4,7 @@ import torch
 import argparse
 import pathlib
 import numpy as np
-from gym_env.bug_crippled import BugCrippledEnv
+#from gym_env.bug_crippled import BugCrippledEnv
 from logger import TensorBoardLogger
 import random
 from misc.utils import set_log
@@ -80,7 +80,7 @@ def train(args, agent, env, replay_buffer):
         if total_step_count % args.save_model_every == 0:
             model_path = args.model_dir + args.model_type + "/" + args.env_name + '/'
             pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
-            torch.save(agent.sac_model.state_dict(), model_path + args.exp_name + str(total_step_count) + ".pth")
+            torch.save(agent.model.state_dict(), model_path + args.exp_name + str(total_step_count) + ".pth")
 
         agent.iteration = total_step_count
 
@@ -100,8 +100,10 @@ def main(args):
     np.random.seed(args.random_seed)
     torch.manual_seed(args.random_seed)
     torch.set_num_threads(8)
+    import gym
 
-    env = BugCrippledEnv(cripple_prob=1.0)
+   #env = BugCrippledEnv(cripple_prob=1.0)
+    env = gym.make('Pendulum-v0')
     env.seed(args.random_seed)
 
     # env_test = BugCrippledEnv(cripple_prob=1.0)
@@ -173,7 +175,7 @@ if __name__ == '__main__':
     parser.add_argument('--save-model-every', help='Save model every certain number of steps', type=int, default=100000)
     parser.add_argument('--exp-name', help='Experiment Name', type=str, default="trial_1")
     parser.add_argument('--model_dir', help='Model directory', type=str, default="model/")
-    parser.add_argument('--model_type', help='Model Type', type=str, default="SAC")
+    parser.add_argument('--model_type', help='Model Type', type=str, default="SOC")
 
     args = parser.parse_args()
     main(args)
