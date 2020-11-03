@@ -2,7 +2,7 @@ import itertools
 import torch
 
 from copy import deepcopy
-from algorithms.sac.model import QFunction, Policy
+from algorithms.sac.model import QFunction, Policy, SACModel
 from torch.optim import Adam
 import torch.nn as nn
 
@@ -18,38 +18,32 @@ class SoftActorCritic(nn.Module):
         self.log = log
 
         # Q Function Definitions
-        self.q_function_1 = QFunction(self.obs_dim, self.action_dim, self.args.hidden_dim)
-        self.q_function_2 = QFunction(self.obs_dim, self.action_dim, self.args.hidden_dim)
-        self.q_function_1_targ = deepcopy(self.q_function_1)
-        self.q_function_2_targ = deepcopy(self.q_function_2)
-
-        # Policy Definition
-        self.policy = Policy(self.obs_dim, self.action_dim, self.args.hidden_dim, action_space.high[0])
+        self.sac_model = SACModel(self.obs_dim, self.action_dim, self.args.hidden_dim, action_space.high[0])
+        self.sac_model_target = deepcopy(self.sac_model)
 
         # Parameter Definitions
-        self.q_params = itertools.chain(self.q_function_1.parameters(), self.q_function_1.parameters())
-        self.q_params_target = itertools.chain(self.q_function_1_targ.parameters(), self.q_function_1_targ.parameters())
-        self.policy_params = self.policy.parameters()
+        self.q_params = itertools.chain(self.sac_model.q_function_1.parameters(), self.sac_model.q_function_2.parameters())
 
-        self.pi_optimizer = Adam(self.policy_params, lr=self.args.lr)
+        self.pi_optimizer = Adam(self.sac_model.policy.parameters(), lr=self.args.lr)
         self.q_optimizer = Adam(self.q_params, lr=self.args.lr)
 
-        self.iteration = 0
+        for p in self.sac_model_target.parameters():
+            p.requires_grad = False
 
     def compute_loss_q(self, data):
         o, a, r, o2, d = data['state'], data['action'], data['reward'], data['next_state'], data['done']
 
-        q1 = self.q_function_1(torch.cat([o, a], dim=-1))
-        q2 = self.q_function_2(torch.cat([o, a], dim=-1))
+        q1 = self.sac_model.q_function_1(torch.cat([o, a], dim=-1))
+        q2 = self.sac_model.q_function_2(torch.cat([o, a], dim=-1))
 
         # Bellman backup for Q functions
         with torch.no_grad():
             # Target actions come from *current* policy
-            a2, logp_a2 = self.policy(o2)
+            a2, logp_a2 = self.sac_model.policy(o2)
 
             # Target Q-values
-            q1_pi_targ = self.q_function_1_targ(torch.cat([o2, a2], dim=-1))
-            q2_pi_targ = self.q_function_2_targ(torch.cat([o2, a2], dim=-1))
+            q1_pi_targ = self.sac_model_target.q_function_1(torch.cat([o2, a2], dim=-1))
+            q2_pi_targ = self.sac_model_target.q_function_2(torch.cat([o2, a2], dim=-1))
             q_pi_targ = torch.min(q1_pi_targ, q2_pi_targ)
             backup = r + self.args.gamma * (1 - d) * (q_pi_targ - self.args.alpha * logp_a2)
 
@@ -60,13 +54,14 @@ class SoftActorCritic(nn.Module):
 
         return loss_q
 
+
         # Set up function for computing SAC pi loss
 
     def compute_loss_pi(self, data):
         o = data['state']
-        pi, logp_pi = self.policy(o)
-        q1_pi = self.q_function_1(torch.cat([o, pi], dim=-1))
-        q2_pi = self.q_function_2(torch.cat([o, pi], dim=-1))
+        pi, logp_pi = self.sac_model.policy(o)
+        q1_pi = self.sac_model.q_function_1(torch.cat([o, pi], dim=-1))
+        q2_pi = self.sac_model.q_function_2(torch.cat([o, pi], dim=-1))
         q_pi = torch.min(q1_pi, q2_pi)
 
         # Entropy-regularized policy loss
@@ -79,6 +74,7 @@ class SoftActorCritic(nn.Module):
         self.q_optimizer.zero_grad()
         loss_q = self.compute_loss_q(data)
         loss_q.backward()
+        # torch.nn.utils.clip_grad_norm_(self.q_params, self.args.max_grad_clip)
         self.q_optimizer.step()
         self.tb_writer.log_data("q function loss", self.iteration, loss_q.item())
 
@@ -91,6 +87,7 @@ class SoftActorCritic(nn.Module):
         self.pi_optimizer.zero_grad()
         loss_pi = self.compute_loss_pi(data)
         loss_pi.backward()
+        # torch.nn.utils.clip_grad_norm_(self.policy_params, self.args.max_grad_clip)
         self.pi_optimizer.step()
         self.tb_writer.log_data("policy loss", self.iteration, loss_pi.item())
 
@@ -100,14 +97,12 @@ class SoftActorCritic(nn.Module):
 
         # Finally, update target networks by polyak averaging.
         with torch.no_grad():
-            for p, p_targ in zip(self.q_params, self.q_params_target):
+            for p, p_targ in zip(self.sac_model.parameters(), self.sac_model_target.parameters()):
                 # NB: We use an in-place operations "mul_", "add_" to update target
                 # params, as opposed to "mul" and "add", which would make new tensors.
                 p_targ.data.mul_(self.args.polyak)
                 p_targ.data.add_((1 - self.args.polyak) * p.data)
 
-        self.iteration += 1
-
     def get_action(self, state):
-        action, logp = self.policy(state)
+        action, logp = self.sac_model.policy(state)
         return action.detach().numpy(), logp.detach().numpy()

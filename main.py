@@ -26,7 +26,6 @@ def train(args, agent, env, replay_buffer):
         # use the learned policy.
         if total_step_count < args.start_steps:
             if args.model_type == "SOC":
-                # TODO Either we should make it as separate def or leave it
                 agent.current_option = agent.get_option(tensor(state), agent.get_epsilon())
             action = env.action_space.sample()  # Uniform random sampling from action space for exploration
         else:
@@ -39,12 +38,6 @@ def train(args, agent, env, replay_buffer):
         ep_reward += reward
         ep_len += 1
 
-        if args.model_type == "SOC":
-            beta_prob, beta = agent.predict_option_termination(tensor(next_state), agent.current_option)
-            # If term is True, then sample next option
-            if beta:
-                agent.current_option = agent.get_option(tensor(next_state), agent.get_epsilon())
-
         # Ignore the "done" signal if it comes from hitting the time
         # horizon (that is, when it's an artificial terminal signal
         # that isn't based on the agent's state)
@@ -55,6 +48,12 @@ def train(args, agent, env, replay_buffer):
             replay_buffer.store(state, agent.current_option, action, reward, next_state, d)
         else:
             replay_buffer.store(state, action, reward, next_state, d)
+
+        if args.model_type == "SOC":
+            beta_prob, beta = agent.predict_option_termination(tensor(next_state), agent.current_option)
+            # If term is True, then sample next option
+            if beta:
+                agent.current_option = agent.get_option(tensor(next_state), agent.get_epsilon())
 
         # For next timestep
         state = torch.tensor(next_state).float()
@@ -81,7 +80,9 @@ def train(args, agent, env, replay_buffer):
         if total_step_count % args.save_model_every == 0:
             model_path = args.model_dir + args.model_type + "/" + args.env_name + '/'
             pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
-            torch.save(agent.state_dict(), model_path + args.exp_name + str(total_step_count) + ".pth")
+            torch.save(agent.sac_model.state_dict(), model_path + args.exp_name + str(total_step_count) + ".pth")
+
+        agent.iteration = total_step_count
 
 
 def main(args):
@@ -100,7 +101,6 @@ def main(args):
     torch.manual_seed(args.random_seed)
     torch.set_num_threads(8)
 
-    # Set env
     env = BugCrippledEnv(cripple_prob=1.0)
     env.seed(args.random_seed)
 
@@ -130,7 +130,6 @@ def main(args):
             log=log)
         replay_buffer = ReplayBufferSAC(obs_dim=agent.obs_dim, act_dim=agent.action_dim, size=args.buffer_size)
 
-    # pre_train(args, agent, env, replay_buffer)  TODO Purely random is here
     train(args, agent, env, replay_buffer)
 
 

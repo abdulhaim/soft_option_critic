@@ -37,7 +37,10 @@ class QFunction(torch.nn.Module):
         x = self.nonlin1(self.layer1(inputs))
         x = self.nonlin2(self.layer2(x))
         x = self.layer3(x)
-        return x
+        return torch.squeeze(x, -1)
+
+LOG_STD_MAX = 2
+LOG_STD_MIN = -20
 
 class Policy(torch.nn.Module):
     """
@@ -70,10 +73,11 @@ class Policy(torch.nn.Module):
         x = self.nonlin1(self.layer1(inputs))
         x = self.nonlin2(self.layer2(x))
         mu = self.layer3_mu(x)
-        std = self.layer3_std(x)
-        scale = torch.exp(torch.clamp(std, min=self.min_log_std))
+        log_std = self.layer3_std(x)
+        log_std = torch.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
+        std = torch.exp(log_std)
 
-        pi_distribution = Normal(loc=mu, scale=scale)
+        pi_distribution = Normal(loc=mu, scale=std)
         pi_action = pi_distribution.rsample()  # NOTE Needed for reparameterization
         logp_pi = pi_distribution.log_prob(pi_action).sum(axis=-1)
         logp_pi -= (2 * (np.log(2) - pi_action - F.softplus(-2 * pi_action))).sum(axis=-1)
@@ -82,3 +86,11 @@ class Policy(torch.nn.Module):
         pi_action = self.action_limit * pi_action
 
         return pi_action, logp_pi
+
+class SACModel(nn.Module):
+    def __init__(self, obs_dim, action_dim, hidden_dim, act_limit):
+        super(SACModel, self).__init__()
+        self.q_function_1 = QFunction(obs_dim, action_dim, hidden_dim)
+        self.q_function_2 = QFunction(obs_dim, action_dim, hidden_dim)
+
+        self.policy = Policy(obs_dim, action_dim, hidden_dim, act_limit)

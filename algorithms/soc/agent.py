@@ -51,14 +51,14 @@ class SoftOptionCritic(nn.Module):
         # Parameter Definitions
         self.q_params_inter = itertools.chain(
             self.inter_q_function_1.parameters(),
-            self.inter_q_function_1.parameters())
+            self.inter_q_function_2.parameters())
         self.q_params_inter_target = itertools.chain(
             self.inter_q_function_1_targ.parameters(),
             self.inter_q_function_2_targ.parameters())
 
         self.q_params_intra = itertools.chain(
             self.intra_q_function_1.parameters(),
-            self.intra_q_function_1.parameters())
+            self.intra_q_function_2.parameters())
         self.q_params_intra_target = itertools.chain(
             self.intra_q_function_1_targ.parameters(),
             self.intra_q_function_2_targ.parameters())
@@ -147,7 +147,7 @@ class SoftOptionCritic(nn.Module):
         beta_prob = []
         logp = []
         current_actions = []
-        for i in range(len(option)):
+        for i in range(self.args.batch_size):
             option_element = option[i][0].to(dtype=torch.long)
             next_state_element = next_state[i]
             state_element = state[i]

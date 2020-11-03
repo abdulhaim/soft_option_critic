@@ -38,7 +38,7 @@ class InterQFunction(torch.nn.Module):
         x = self.nonlin1(self.layer1(inputs))
         x = self.nonlin2(self.layer2(x))
         x = self.layer3(x)
-        return x
+        return torch.squeeze(x, -1)
 
 
 class IntraQFunction(torch.nn.Module):
@@ -70,8 +70,10 @@ class IntraQFunction(torch.nn.Module):
         x = self.nonlin1(self.layer1(inputs))
         x = self.nonlin2(self.layer2(x))
         x = self.layer3(x)
-        return x
+        return torch.squeeze(x, -1)
 
+LOG_STD_MAX = 2
+LOG_STD_MIN = -20
 
 class IntraOptionPolicy(torch.nn.Module):
     """
@@ -103,16 +105,14 @@ class IntraOptionPolicy(torch.nn.Module):
         x = self.nonlin1(self.layer1(inputs))
         x = self.nonlin2(self.layer2(x))
         mu = self.layer3_mu(x)
-        std = self.layer3_std(x)
-        scale = torch.exp(torch.clamp(std, min=self.min_log_std))
+        log_std = self.layer3_std(x)
+        log_std = torch.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
+        std = torch.exp(log_std)
 
-        pi_distribution = Normal(loc=mu, scale=scale)
-        if pi_action is None:
-            pi_action = pi_distribution.rsample()
-
-        logp_pi = pi_distribution.log_prob(pi_action).sum()
+        pi_distribution = Normal(loc=mu, scale=std)
+        pi_action = pi_distribution.rsample()  # NOTE Needed for reparameterization
+        logp_pi = pi_distribution.log_prob(pi_action).sum(axis=-1)
         logp_pi -= (2 * (np.log(2) - pi_action - F.softplus(-2 * pi_action))).sum(axis=-1)
-
         pi_action = torch.tanh(pi_action)
         pi_action = self.action_limit * pi_action
 
