@@ -111,8 +111,8 @@ class SoftOptionCritic(nn.Module):
             backup_inter = torch.min(q1_intra_targ, q2_intra_targ) - self.args.alpha * logp
 
         # Inter-Q Function Loss
-        loss_inter_q1 = ((q1_inter - backup_inter) ** 2).mean()
-        loss_inter_q2 = ((q2_inter - backup_inter) ** 2).mean()
+        loss_inter_q1 = ((q1_inter - backup_inter.detach()) ** 2).mean()
+        loss_inter_q2 = ((q2_inter - backup_inter.detach()) ** 2).mean()
         loss_inter_q = loss_inter_q1 + loss_inter_q2
         return loss_inter_q
 
@@ -140,16 +140,16 @@ class SoftOptionCritic(nn.Module):
             q2_inter_targ = self.model_target.inter_q_function_2(next_state)
             q_inter_targ = torch.min(q1_inter_targ, q2_inter_targ)
             q_inter_targ_current_option = torch.gather(q_inter_targ, 1, option_indices)
+
             next_option = torch.LongTensor(self.get_option(next_state, self.get_epsilon(), gradient=True))
             next_option = next_option.unsqueeze(-1)
-
             q_inter_targ_next_option = torch.gather(q_inter_targ, 1, next_option)
 
             backup_intra = reward + self.args.gamma * (1. - done) * (((1. - beta_prob) * q_inter_targ_current_option) +
                                                                      (beta_prob * q_inter_targ_next_option))
         # Intra-Q Function Loss
-        loss_intra_q1 = ((q1_intra - backup_intra) ** 2).mean()
-        loss_intra_q2 = ((q2_intra - backup_intra) ** 2).mean()
+        loss_intra_q1 = ((q1_intra - backup_intra.detach()) ** 2).mean()
+        loss_intra_q2 = ((q2_intra - backup_intra.detach()) ** 2).mean()
         loss_intra_q = loss_intra_q1 + loss_intra_q2
 
         # Intra-Option Policy Loss
@@ -185,14 +185,6 @@ class SoftOptionCritic(nn.Module):
         self.inter_q_function_optim.step()
         self.tb_writer.log_data("inter_q_function_loss", self.iteration, loss_inter_q.item())
 
-        # Freeze Q-networks so you don't waste computational effort
-        # computing gradients for them during the policy learning step.
-        for p in self.q_params_intra:
-            p.requires_grad = False
-
-        for p in self.q_params_inter:
-            p.requires_grad = False
-
         # Updating Intra-Policy
         self.intra_policy_optim.zero_grad()
         loss_intra_pi.backward()
@@ -208,13 +200,6 @@ class SoftOptionCritic(nn.Module):
         self.beta_optim.step()
         self.tb_writer.log_data("beta_policy_loss", self.iteration, loss_beta.item())
 
-        # Unfreeze Q-networks so you can optimize it at next DDPG step.
-        for p in self.q_params_intra:
-            p.requires_grad = True
-        for p in self.q_params_inter:
-            p.requires_grad = True
-
-        # Finally, update target inter-q networks by polyak averaging.
         with torch.no_grad():
             for p, p_targ in zip(self.model.parameters(), self.model_target.parameters()):
                 # NB: We use an in-place operations "mul_", "add_" to update target

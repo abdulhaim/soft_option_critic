@@ -23,6 +23,7 @@ class SoftActorCritic(nn.Module):
 
         # Parameter Definitions
         self.q_params = itertools.chain(self.model.q_function_1.parameters(), self.model.q_function_2.parameters())
+        self.q_params_target = itertools.chain(self.model_target.q_function_1.parameters(), self.model_target.q_function_2.parameters())
 
         self.pi_optimizer = Adam(self.model.policy.parameters(), lr=self.args.lr)
         self.q_optimizer = Adam(self.q_params, lr=self.args.lr)
@@ -72,26 +73,17 @@ class SoftActorCritic(nn.Module):
         self.q_optimizer.zero_grad()
         loss_q = self.compute_loss_q(data)
         loss_q.backward()
-        # torch.nn.utils.clip_grad_norm_(self.q_params, self.args.max_grad_clip)
+        torch.nn.utils.clip_grad_norm_(self.q_params, self.args.max_grad_clip)
         self.q_optimizer.step()
         self.tb_writer.log_data("q_function_loss", self.iteration, loss_q.item())
-
-        # Freeze Q-networks so you don't waste computational effort
-        # computing gradients for them during the policy learning step.
-        for p in self.q_params:
-            p.requires_grad = False
 
         # Next run one gradient descent step for pi
         self.pi_optimizer.zero_grad()
         loss_pi = self.compute_loss_pi(data)
         loss_pi.backward()
-        # torch.nn.utils.clip_grad_norm_(self.policy_params, self.args.max_grad_clip)
+        torch.nn.utils.clip_grad_norm_(self.model.policy.parameters(), self.args.max_grad_clip)
         self.pi_optimizer.step()
         self.tb_writer.log_data("policy_loss", self.iteration, loss_pi.item())
-
-        # Unfreeze Q-networks so you can optimize it at next DDPG step.
-        for p in self.q_params:
-            p.requires_grad = True
 
         # Finally, update target networks by polyak averaging.
         with torch.no_grad():

@@ -92,6 +92,8 @@ def main(args):
     if not os.path.exists(args.model_dir):
         os.makedirs(args.model_dir)
 
+    env_name = "Pendulum-v0"
+    args.env_name = env_name
     log = set_log(args)
     tb_writer = TensorBoardLogger(logdir=args.log_name, run_name=args.env_name + time.ctime())
 
@@ -100,12 +102,11 @@ def main(args):
     np.random.seed(args.random_seed)
     torch.manual_seed(args.random_seed)
     torch.set_num_threads(8)
+
     import gym
-
-   #env = BugCrippledEnv(cripple_prob=1.0)
-    env = gym.make('Pendulum-v0')
+    env = gym.make(env_name)
     env.seed(args.random_seed)
-
+    # env = BugCrippledEnv(cripple_prob=1.0)
     # env_test = BugCrippledEnv(cripple_prob=1.0)
     # env_test.seed(args.random_seed)
 
@@ -166,9 +167,9 @@ if __name__ == '__main__':
 
     # Environment Parameters
     parser.add_argument('--env_name', help='name of env', type=str,
-                        default="BugCrippled")
+                        default="BugCrippled") ## TODO: change this to be automatic
     parser.add_argument('--random-seed', help='random seed for repeatability', default=1234)
-    parser.add_argument('--max-episode-len', help='max length of 1 episode', default=1000)
+    parser.add_argument('--max-episode-len', help='max length of 1 episode', default=200)
 
     # Plotting Parameters
     parser.add_argument('--log_name', help='Log directory', type=str, default="logs")
