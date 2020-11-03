@@ -92,7 +92,7 @@ class SoftOptionCritic(nn.Module):
             advantage = q_pi_current_option - q_pi_next_option
 
         # Beta Policy Loss
-        loss_beta = (Variable(beta_prob, requires_grad=True) * advantage).mean()
+        loss_beta = (beta_prob * advantage.detach()).mean()
         return loss_beta
 
     def compute_loss_inter(self, state, option_indices, one_hot_option, current_actions, logp):
@@ -120,9 +120,7 @@ class SoftOptionCritic(nn.Module):
         q1_intra = self.model.intra_q_function_1(torch.cat([state, action, tensor(one_hot_option)], dim=-1))
         q2_intra = self.model.intra_q_function_2(torch.cat([state, action, tensor(one_hot_option)], dim=-1))
 
-        beta_prob = []
-        logp = []
-        current_actions = []
+        beta_prob, logp, current_actions = [], [], []
         for i in range(self.args.batch_size):
             option_element = option[i].to(dtype=torch.long)
             next_state_element = next_state[i]
@@ -172,8 +170,8 @@ class SoftOptionCritic(nn.Module):
 
         # Updating Intra-Q Functions
         self.intra_q_function_optim.zero_grad()
-        loss_intra_q, loss_intra_pi, current_actions, logp, beta_prob = self.compute_loss_intra(state, action, option, one_hot_option,
-                                                                                                option_indices, next_state, reward, done)
+        loss_intra_q, loss_intra_pi, current_actions, logp, beta_prob = self.compute_loss_intra(
+            state, action, option, one_hot_option, option_indices, next_state, reward, done)
         loss_intra_q.backward()
         torch.nn.utils.clip_grad_norm_(self.q_params_intra, self.args.max_grad_clip)
         self.intra_q_function_optim.step()
