@@ -19,6 +19,7 @@ class SoftOptionCritic(nn.Module):
         super(SoftOptionCritic, self).__init__()
 
         self.obs_dim = observation_space.shape[0]
+        self.action_space = action_space
         self.action_dim = action_space.shape[0]
         self.option_num = args.option_num
         self.args = args
@@ -105,9 +106,9 @@ class SoftOptionCritic(nn.Module):
         with torch.no_grad():
             # Computing Inter-Q Function Loss
             q1_intra_targ = self.model_target.intra_q_function_1(
-                torch.cat([state, current_actions, tensor(one_hot_option)], dim=-1))
+                torch.cat([state, tensor(one_hot_option), current_actions], dim=-1))
             q2_intra_targ = self.model_target.intra_q_function_2(
-                torch.cat([state, current_actions, tensor(one_hot_option)], dim=-1))
+                torch.cat([state, tensor(one_hot_option), current_actions], dim=-1))
             backup_inter = torch.min(q1_intra_targ, q2_intra_targ) - self.args.alpha * logp
 
         # Inter-Q Function Loss
@@ -117,8 +118,8 @@ class SoftOptionCritic(nn.Module):
         return loss_inter_q
 
     def compute_loss_intra(self, state, action, option, one_hot_option, option_indices, next_state, reward, done):
-        q1_intra = self.model.intra_q_function_1(torch.cat([state, action, tensor(one_hot_option)], dim=-1))
-        q2_intra = self.model.intra_q_function_2(torch.cat([state, action, tensor(one_hot_option)], dim=-1))
+        q1_intra = self.model.intra_q_function_1(torch.cat([state, tensor(one_hot_option), action], dim=-1))
+        q2_intra = self.model.intra_q_function_2(torch.cat([state, tensor(one_hot_option), action], dim=-1))
 
         beta_prob, logp, current_actions = [], [], []
         for i in range(self.args.batch_size):
@@ -201,7 +202,31 @@ class SoftOptionCritic(nn.Module):
         self.tb_writer.log_data("beta_policy_loss", self.iteration, loss_beta.item())
 
         with torch.no_grad():
-            for p, p_targ in zip(self.model.parameters(), self.model_target.parameters()):
+            for p, p_targ in zip(self.model.inter_q_function_1.parameters(), self.model_target.inter_q_function_2.parameters()):
+                # NB: We use an in-place operations "mul_", "add_" to update target
+                # params, as opposed to "mul" and "add", which would make new tensors.
+                p_targ.data.mul_(self.args.polyak)
+                p_targ.data.add_((1 - self.args.polyak) * p.data)
+
+            for p, p_targ in zip(self.model.inter_q_function_2.parameters(), self.model_target.inter_q_function_2.parameters()):
+                # NB: We use an in-place operations "mul_", "add_" to update target
+                # params, as opposed to "mul" and "add", which would make new tensors.
+                p_targ.data.mul_(self.args.polyak)
+                p_targ.data.add_((1 - self.args.polyak) * p.data)
+
+            for p, p_targ in zip(self.model.inter_q_function_2.parameters(), self.model_target.inter_q_function_2.parameters()):
+                # NB: We use an in-place operations "mul_", "add_" to update target
+                # params, as opposed to "mul" and "add", which would make new tensors.
+                p_targ.data.mul_(self.args.polyak)
+                p_targ.data.add_((1 - self.args.polyak) * p.data)
+
+            for p, p_targ in zip(self.model.intra_q_function_1.parameters(), self.model_target.intra_q_function_1.parameters()):
+                # NB: We use an in-place operations "mul_", "add_" to update target
+                # params, as opposed to "mul" and "add", which would make new tensors.
+                p_targ.data.mul_(self.args.polyak)
+                p_targ.data.add_((1 - self.args.polyak) * p.data)
+
+            for p, p_targ in zip(self.model.intra_q_function_2.parameters(), self.model_target.intra_q_function_2.parameters()):
                 # NB: We use an in-place operations "mul_", "add_" to update target
                 # params, as opposed to "mul" and "add", which would make new tensors.
                 p_targ.data.mul_(self.args.polyak)

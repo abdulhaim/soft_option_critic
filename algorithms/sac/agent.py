@@ -23,11 +23,11 @@ class SoftActorCritic(nn.Module):
 
         # Parameter Definitions
         self.q_params = itertools.chain(self.model.q_function_1.parameters(), self.model.q_function_2.parameters())
-        self.q_params_target = itertools.chain(self.model_target.q_function_1.parameters(), self.model_target.q_function_2.parameters())
 
         self.pi_optimizer = Adam(self.model.policy.parameters(), lr=self.args.lr)
         self.q_optimizer = Adam(self.q_params, lr=self.args.lr)
 
+        # Freeze target networks with respect to optimizers (only update via polyak averaging)
         for p in self.model_target.parameters():
             p.requires_grad = False
 
@@ -54,7 +54,6 @@ class SoftActorCritic(nn.Module):
         loss_q = loss_q1 + loss_q2
 
         return loss_q
-
 
     def compute_loss_pi(self, data):
         o = data['state']
@@ -87,7 +86,13 @@ class SoftActorCritic(nn.Module):
 
         # Finally, update target networks by polyak averaging.
         with torch.no_grad():
-            for p, p_targ in zip(self.model.parameters(), self.model_target.parameters()):
+            for p, p_targ in zip(self.model.q_function_1.parameters(), self.model_target.q_function_1.parameters()):
+                # NB: We use an in-place operations "mul_", "add_" to update target
+                # params, as opposed to "mul" and "add", which would make new tensors.
+                p_targ.data.mul_(self.args.polyak)
+                p_targ.data.add_((1 - self.args.polyak) * p.data)
+
+            for p, p_targ in zip(self.model.q_function_2.parameters(), self.model_target.q_function_2.parameters()):
                 # NB: We use an in-place operations "mul_", "add_" to update target
                 # params, as opposed to "mul" and "add", which would make new tensors.
                 p_targ.data.mul_(self.args.polyak)

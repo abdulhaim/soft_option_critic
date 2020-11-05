@@ -91,7 +91,6 @@ def main(args):
         os.makedirs(args.log_name)
     if not os.path.exists(args.model_dir):
         os.makedirs(args.model_dir)
-
     env_name = "Pendulum-v0"
     args.env_name = env_name
     log = set_log(args)
@@ -102,7 +101,6 @@ def main(args):
     np.random.seed(args.random_seed)
     torch.manual_seed(args.random_seed)
     torch.set_num_threads(8)
-
     import gym
     env = gym.make(env_name)
     env.seed(args.random_seed)
@@ -153,7 +151,7 @@ if __name__ == '__main__':
     parser.add_argument('--eps-start', type=float, default=1.0, help=('Starting value for epsilon.'))
     parser.add_argument('--eps-min', type=float, default=.15, help='Minimum epsilon.')
     parser.add_argument('--eps-decay', type=float, default=500000, help=('Number of steps to minimum epsilon.'))
-    parser.add_argument('--option-num', help='number of options', default=4)
+    parser.add_argument('--option-num', help='number of options', default=2)
 
     # Episodes and Exploration Parameters
     parser.add_argument('--total-step-num', help='total number of time steps', default=10000000)
@@ -167,9 +165,9 @@ if __name__ == '__main__':
 
     # Environment Parameters
     parser.add_argument('--env_name', help='name of env', type=str,
-                        default="BugCrippled") ## TODO: change this to be automatic
+                        default="BugCrippled")
     parser.add_argument('--random-seed', help='random seed for repeatability', default=1234)
-    parser.add_argument('--max-episode-len', help='max length of 1 episode', default=200)
+    parser.add_argument('--max-episode-len', help='max length of 1 episode', default=1000)
 
     # Plotting Parameters
     parser.add_argument('--log_name', help='Log directory', type=str, default="logs")
