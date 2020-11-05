@@ -151,7 +151,7 @@ if __name__ == '__main__':
     parser.add_argument('--eps-start', type=float, default=1.0, help=('Starting value for epsilon.'))
     parser.add_argument('--eps-min', type=float, default=.15, help='Minimum epsilon.')
     parser.add_argument('--eps-decay', type=float, default=500000, help=('Number of steps to minimum epsilon.'))
-    parser.add_argument('--option-num', help='number of options', default=2)
+    parser.add_argument('--option-num', help='number of options', default=1)
 
     # Episodes and Exploration Parameters
     parser.add_argument('--total-step-num', help='total number of time steps', default=10000000)
