@@ -158,8 +158,10 @@ class SoftOptionCritic(nn.Module):
         # Intra-Option Policy Loss
         # the replay buffer, so we should not another sampling, which can be
         # different from the action sampled from the buffer
-        q_pi = torch.min(q1_intra, q2_intra)
-        loss_intra_pi = (self.args.alpha * Variable(logp, requires_grad=True) - q_pi.detach()).mean()
+        q1_intra_current_action = self.model.intra_q_function_1(torch.cat([state, tensor(one_hot_option), current_actions], dim=-1))
+        q2_intra_current_action = self.model.intra_q_function_2(torch.cat([state, tensor(one_hot_option), current_actions], dim=-1))
+        q_pi = torch.min(q1_intra_current_action, q2_intra_current_action)
+        loss_intra_pi = (self.args.alpha * logp - q_pi.detach()).mean()
 
         return loss_intra_q, loss_intra_pi, current_actions, logp, beta_prob
 
