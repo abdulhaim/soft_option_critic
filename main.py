@@ -30,7 +30,7 @@ def train(args, agent, env, replay_buffer):
             action = env.action_space.sample()  # Uniform random sampling from action space for exploration
         else:
             if args.model_type == "SOC":
-                action, logp = agent.get_action(agent.current_option, state)
+                action, _ = agent.get_action(agent.current_option, state)
             else:
                 action, _ = agent.get_action(state)
 

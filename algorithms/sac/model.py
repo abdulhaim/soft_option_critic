@@ -64,7 +64,6 @@ class Policy(torch.nn.Module):
         self.action_limit = action_limit
         self.module_list += [self.layer3_mu]
         self.module_list += [self.layer3_std]
-
         self.num_actions = num_actions
         self.apply(weights_init)
         self.train()
@@ -81,7 +80,6 @@ class Policy(torch.nn.Module):
         pi_action = pi_distribution.rsample()  # NOTE Needed for reparameterization
         logp_pi = pi_distribution.log_prob(pi_action).sum(axis=-1)
         logp_pi -= (2 * (np.log(2) - pi_action - F.softplus(-2 * pi_action))).sum(axis=-1)
-
         pi_action = torch.tanh(pi_action)
         pi_action = self.action_limit * pi_action
 

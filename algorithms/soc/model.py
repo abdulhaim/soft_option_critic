@@ -172,4 +172,3 @@ class SOCModel(nn.Module):
             self.beta_list.append(BetaPolicy(obs_dim, hidden_dim))
             self.intra_option_policies.append(
                 IntraOptionPolicy(obs_dim, action_dim, hidden_dim, act_limit))
-

@@ -45,8 +45,8 @@ class SoftOptionCritic(nn.Module):
 
         self.inter_q_function_optim = Adam(self.q_params_inter, lr=args.lr)
         self.intra_q_function_optim = Adam(self.q_params_intra, lr=args.lr)
-        self.intra_policy_optim = Adam(self.intra_policy_params, lr=args.lr)
-        self.beta_optim = Adam(self.beta_params, lr=args.lr)
+        self.intra_policy_optim = Adam(self.model.intra_option_policies[0].parameters(), lr=args.lr)
+        self.beta_optim = Adam(self.model.beta_list[0].parameters(), lr=args.lr)
 
         self.iteration = 0
 
@@ -130,7 +130,14 @@ class SoftOptionCritic(nn.Module):
             state_element = state[i]
             beta_prob_element, termination = self.predict_option_termination(tensor(next_state_element), option_element)
             beta_prob.append(beta_prob_element)
-            current_action_element, logp_element = self.model.intra_option_policies[option_element](state_element)
+            if self.args.start_steps > self.iteration:
+                current_action_element = self.action_space.sample()
+                pi_distribution = Normal(loc=0.0, scale=1.0)
+                pi_action = pi_distribution.rsample()  # NOTE Needed for reparameterization
+                logp_element = pi_distribution.log_prob(pi_action).sum(axis=-1)
+                logp_element -= (2 * (np.log(2) - pi_action - F.softplus(-2 * pi_action))).sum(axis=-1)
+            else:
+                current_action_element, logp_element = self.model.intra_option_policies[0](state_element)
             logp.append(logp_element)
             current_actions.append(tensor(current_action_element))
 
@@ -161,7 +168,7 @@ class SoftOptionCritic(nn.Module):
         q1_intra_current_action = self.model.intra_q_function_1(torch.cat([state, tensor(one_hot_option), current_actions], dim=-1))
         q2_intra_current_action = self.model.intra_q_function_2(torch.cat([state, tensor(one_hot_option), current_actions], dim=-1))
         q_pi = torch.min(q1_intra_current_action, q2_intra_current_action)
-        loss_intra_pi = (self.args.alpha * logp - q_pi.detach()).mean()
+        loss_intra_pi = (self.args.alpha * logp - q_pi).mean()
 
         return loss_intra_q, loss_intra_pi, current_actions, logp, beta_prob
 
@@ -193,7 +200,7 @@ class SoftOptionCritic(nn.Module):
         # Updating Intra-Policy
         self.intra_policy_optim.zero_grad()
         loss_intra_pi.backward()
-        torch.nn.utils.clip_grad_norm_(self.q_params_intra, self.args.max_grad_clip)
+        torch.nn.utils.clip_grad_norm_(self.intra_policy_params, self.args.max_grad_clip)
         self.intra_policy_optim.step()
         self.tb_writer.log_data("intra_q_policy_loss", self.iteration, loss_intra_pi.item())
 
@@ -206,13 +213,7 @@ class SoftOptionCritic(nn.Module):
         self.tb_writer.log_data("beta_policy_loss", self.iteration, loss_beta.item())
 
         with torch.no_grad():
-            for p, p_targ in zip(self.model.inter_q_function_1.parameters(), self.model_target.inter_q_function_2.parameters()):
-                # NB: We use an in-place operations "mul_", "add_" to update target
-                # params, as opposed to "mul" and "add", which would make new tensors.
-                p_targ.data.mul_(self.args.polyak)
-                p_targ.data.add_((1 - self.args.polyak) * p.data)
-
-            for p, p_targ in zip(self.model.inter_q_function_2.parameters(), self.model_target.inter_q_function_2.parameters()):
+            for p, p_targ in zip(self.model.inter_q_function_1.parameters(), self.model_target.inter_q_function_1.parameters()):
                 # NB: We use an in-place operations "mul_", "add_" to update target
                 # params, as opposed to "mul" and "add", which would make new tensors.
                 p_targ.data.mul_(self.args.polyak)
