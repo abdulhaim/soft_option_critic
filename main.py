@@ -4,14 +4,13 @@ import torch
 import argparse
 import pathlib
 import numpy as np
-#from gym_env.bug_crippled import BugCrippledEnv
 from logger import TensorBoardLogger
 import random
-from misc.utils import set_log
+from misc.utils import set_log, make_env
 from misc.torch_utils import tensor
+from misc.tester import test_evaluation
 
-
-def train(args, agent, env, replay_buffer):
+def train(args, agent, env, env_test, replay_buffer):
     ep_reward = 0
     ep_len = 0
     state = tensor(env.reset())
@@ -24,7 +23,7 @@ def train(args, agent, env, replay_buffer):
         # Until start_steps have elapsed, randomly sample actions
         # from a uniform distribution for better exploration. Afterwards,
         # use the learned policy.
-        if total_step_count < args.start_steps:
+        if total_step_count < args.update_after:
             if args.model_type == "SOC":
                 agent.current_option = agent.get_option(tensor(state), agent.get_epsilon())
             action = env.action_space.sample()  # Uniform random sampling from action space for exploration
@@ -75,6 +74,7 @@ def train(args, agent, env, replay_buffer):
                     agent.update_loss_soc(data=batch)
                 else:
                     agent.update_loss_sac(data=batch)
+            test_evaluation(args, agent, env_test)
 
         # Save model
         if total_step_count % args.save_model_every == 0:
@@ -91,8 +91,7 @@ def main(args):
         os.makedirs(args.log_name)
     if not os.path.exists(args.model_dir):
         os.makedirs(args.model_dir)
-    env_name = "Pendulum-v0"
-    args.env_name = env_name
+
     log = set_log(args)
     tb_writer = TensorBoardLogger(logdir=args.log_name, run_name=args.env_name + time.ctime())
 
@@ -101,12 +100,10 @@ def main(args):
     np.random.seed(args.random_seed)
     torch.manual_seed(args.random_seed)
     torch.set_num_threads(8)
-    import gym
-    env = gym.make(env_name)
+
+    env, env_test = make_env(args.env_name)
     env.seed(args.random_seed)
-    # env = BugCrippledEnv(cripple_prob=1.0)
-    # env_test = BugCrippledEnv(cripple_prob=1.0)
-    # env_test.seed(args.random_seed)
+    env_test.seed(args.random_seed)
 
     # Set either SOC or SAC
     if args.model_type == "SOC":
@@ -131,7 +128,7 @@ def main(args):
             log=log)
         replay_buffer = ReplayBufferSAC(obs_dim=agent.obs_dim, act_dim=agent.action_dim, size=args.buffer_size)
 
-    train(args, agent, env, replay_buffer)
+    train(args, agent, env, env_test, replay_buffer)
 
 
 if __name__ == '__main__':
@@ -158,14 +155,12 @@ if __name__ == '__main__':
     parser.add_argument('--test-num', help='number of episode for recording the return', default=10)
     parser.add_argument('--max-steps', help='Maximum no of steps', type=int, default=1500000)
     parser.add_argument('--update-after', help='Number of env interactions to collect before starting to updates',
-                        type=int, default=1000)
-    parser.add_argument('--start_steps', help='Number of env interactions to collect before starting to updates',
                         type=int, default=10000)
     parser.add_argument('--update-every', help='update model after certain number steps', type=int, default=50)
 
     # Environment Parameters
     parser.add_argument('--env_name', help='name of env', type=str,
-                        default="BugCrippled")
+                        default="Pendulum-v0")
     parser.add_argument('--random-seed', help='random seed for repeatability', default=1234)
     parser.add_argument('--max-episode-len', help='max length of 1 episode', default=1000)
 

@@ -31,6 +31,7 @@ class SoftActorCritic(nn.Module):
         for p in self.model_target.parameters():
             p.requires_grad = False
 
+        self.test_iteration = 0
     def compute_loss_q(self, data):
         o, a, r, o2, d = data['state'], data['action'], data['reward'], data['next_state'], data['done']
 

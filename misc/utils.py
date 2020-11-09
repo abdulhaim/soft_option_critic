@@ -1,5 +1,18 @@
 import logging
 
+
+def make_env(env_name):
+    if env_name == "BugCrippled":
+        from gym_env.bug_crippled import BugCrippledEnv
+        env = BugCrippledEnv(cripple_prob=1.0)
+        env_test = BugCrippledEnv(cripple_prob=1.0)
+    elif env_name == "Pendulum-v0":
+        import gym
+        env = gym.make(env_name)
+        env_test = gym.make(env_name)
+    return env, env_test
+
+
 def set_logger(logger_name, log_file, level=logging.INFO):
     log = logging.getLogger(logger_name)
     formatter = logging.Formatter('%(asctime)s : %(message)s')
