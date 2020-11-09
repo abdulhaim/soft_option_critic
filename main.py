@@ -148,14 +148,13 @@ if __name__ == '__main__':
     parser.add_argument('--eps-start', type=float, default=1.0, help=('Starting value for epsilon.'))
     parser.add_argument('--eps-min', type=float, default=.15, help='Minimum epsilon.')
     parser.add_argument('--eps-decay', type=float, default=500000, help=('Number of steps to minimum epsilon.'))
-    parser.add_argument('--option-num', help='number of options', default=1)
+    parser.add_argument('--option-num', help='number of options', default=2)
 
     # Episodes and Exploration Parameters
     parser.add_argument('--total-step-num', help='total number of time steps', default=10000000)
     parser.add_argument('--test-num', help='number of episode for recording the return', default=10)
     parser.add_argument('--max-steps', help='Maximum no of steps', type=int, default=1500000)
-    parser.add_argument('--update-after', help='Number of env interactions to collect before starting to updates',
-                        type=int, default=10000)
+    parser.add_argument('--update-after', help='steps before updating', type=int, default=10000)
     parser.add_argument('--update-every', help='update model after certain number steps', type=int, default=50)
 
     # Environment Parameters

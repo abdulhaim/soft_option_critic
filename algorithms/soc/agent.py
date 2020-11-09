@@ -42,8 +42,8 @@ class SoftOptionCritic(nn.Module):
 
         self.inter_q_function_optim = Adam(self.q_params_inter, lr=args.lr)
         self.intra_q_function_optim = Adam(self.q_params_intra, lr=args.lr)
-        self.intra_policy_optim = Adam(self.model.intra_option_policies[0].parameters(), lr=args.lr)
-        self.beta_optim = Adam(self.model.beta_list[0].parameters(), lr=args.lr)
+        self.intra_policy_optim = Adam(self.intra_policy_params, lr=args.lr)
+        self.beta_optim = Adam(self.beta_params, lr=args.lr)
 
         self.iteration = 0
         self.test_iteration = 0
@@ -86,12 +86,13 @@ class SoftOptionCritic(nn.Module):
             q1_pi = self.model.inter_q_function_1(next_state)
             q2_pi = self.model.inter_q_function_2(next_state)
             q_pi = torch.min(q1_pi, q2_pi)
+
             q_pi_current_option = torch.gather(q_pi, 1, option_indices).squeeze(-1)
             q_pi_next_option = np.max(q_pi.data.numpy())
             advantage = q_pi_current_option - q_pi_next_option
 
         # Beta Policy Loss
-        loss_beta = ((beta_prob * advantage.detach())*(1 - done)).mean()
+        loss_beta = ((beta_prob * advantage)*(1-done)).mean()
         return loss_beta
 
     def compute_loss_inter(self, state, option_indices, one_hot_option, current_actions, logp):
@@ -110,8 +111,8 @@ class SoftOptionCritic(nn.Module):
             backup_inter = torch.min(q1_intra_targ, q2_intra_targ) - self.args.alpha * logp
 
         # Inter-Q Function Loss
-        loss_inter_q1 = ((q1_inter - backup_inter.detach()) ** 2).mean()
-        loss_inter_q2 = ((q2_inter - backup_inter.detach()) ** 2).mean()
+        loss_inter_q1 = ((q1_inter - backup_inter) ** 2).mean()
+        loss_inter_q2 = ((q2_inter - backup_inter) ** 2).mean()
         loss_inter_q = loss_inter_q1 + loss_inter_q2
         return loss_inter_q
 
@@ -137,7 +138,6 @@ class SoftOptionCritic(nn.Module):
         with torch.no_grad():
             q1_inter_targ = self.model_target.inter_q_function_1(next_state)
             q2_inter_targ = self.model_target.inter_q_function_2(next_state)
-
             q_inter_targ = torch.min(q1_inter_targ, q2_inter_targ)
             q_inter_targ_current_option = torch.gather(q_inter_targ, 1, option_indices).squeeze(-1)
 
