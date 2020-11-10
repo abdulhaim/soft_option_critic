@@ -49,7 +49,7 @@ def train(args, agent, env, env_test, replay_buffer):
             agent.current_sample = (state, agent.current_option, action, reward, next_state, d)
         else:
             replay_buffer.store(state, action, reward, next_state, d)
-            agent.current_sample = (state, action, reward, next_state, d)
+            agent.current_sample = (tensor(state), tensor(action), reward, tensor(next_state), d)
 
         if args.model_type == "SOC":
             beta_prob, beta = agent.predict_option_termination(tensor(next_state), agent.current_option)
@@ -88,6 +88,9 @@ def train(args, agent, env, env_test, replay_buffer):
             model_path = args.model_dir + args.model_type + "/" + args.env_name + '/'
             pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
             torch.save(agent.model.state_dict(), model_path + args.exp_name + str(total_step_count) + ".pth")
+
+        if args.change_task and args.change_every % agent.episodes == 0:
+            env, env_test = make_env(args.env_name, cripple_prob=1.0)
 
 
 def main(args):
@@ -182,18 +185,22 @@ if __name__ == '__main__':
     parser.add_argument('--model_type', help='Model Type', type=str, default="SAC")
 
     # MER hyper-parameters
-    parser.add_argument('--mer', type=bool, default=False, help='whether to use mer')
+    parser.add_argument('--mer', type=bool, default=True, help='whether to use mer')
     parser.add_argument('--mer-steps', type=int, default=1,
                         help='beta learning rate parameter')  # exploration factor in roe
-    parser.add_argument('--beta-mer', type=float, default=1.0,
+    parser.add_argument('--mer-beta', type=float, default=1.0,
                         help='beta learning rate parameter')  # exploration factor in roe
-    parser.add_argument('--lr-mer', type=float, default=1e-4, help='MER learning rate')  # exploration factor in roe
-    parser.add_argument('--gamma_mer', type=float, default=0.3,
+    parser.add_argument('--mer-lr', type=float, default=1e-4, help='MER learning rate')  # exploration factor in roe
+    parser.add_argument('--mer-gamma', type=float, default=0.3,
                         help='gamma learning rate parameter')  # gating net lr in roe
-    parser.add_argument('--replay_batch_size_mer', type=float, default=16,
+    parser.add_argument('--mer-replay_batch_size', type=float, default=16,
                         help='The batch size for experience replay. Denoted as k-1 in the paper.')
     parser.add_argument('--mer_replay_buffer_size', type=int, default=50000, help='Replay buffer size')
-    parser.add_argument('--update-target-every', type=int, default=50, help='Replay buffer size')
+    parser.add_argument('--mer-update-target-every', type=int, default=50, help='Replay buffer size')
+
+    # Non-stationarity
+    parser.add_argument('--change-task', type=bool, default=False, help='whether to add non-stationarity')
+    parser.add_argument('--change-every-', type=int, default=300, help='numb of ep to change task')
 
     args = parser.parse_args()
     main(args)

@@ -1,11 +1,11 @@
 import logging
 
 
-def make_env(env_name):
+def make_env(env_name, cripple_prob=1.0):
     if env_name == "BugCrippled":
         from gym_env.bug_crippled import BugCrippledEnv
-        env = BugCrippledEnv(cripple_prob=1.0)
-        env_test = BugCrippledEnv(cripple_prob=1.0)
+        env = BugCrippledEnv(cripple_prob=cripple_prob)
+        env_test = BugCrippledEnv(cripple_prob=cripple_prob)
     elif env_name == "Pendulum-v0":
         import gym
         env = gym.make(env_name)

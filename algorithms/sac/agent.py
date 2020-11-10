@@ -25,8 +25,13 @@ class SoftActorCritic(nn.Module):
         # Parameter Definitions
         self.q_params = itertools.chain(self.model.q_function_1.parameters(), self.model.q_function_2.parameters())
 
-        self.pi_optimizer = Adam(self.model.policy.parameters(), lr=self.args.lr)
-        self.q_optimizer = Adam(self.q_params, lr=self.args.lr)
+        if self.args.mer:
+            lr = self.args.mer_lr
+        else:
+            lr = self.args.lr
+
+        self.pi_optimizer = Adam(self.model.policy.parameters(), lr=lr)
+        self.q_optimizer = Adam(self.q_params, lr=lr)
 
         # Freeze target networks with respect to optimizers (only update via polyak averaging)
         for p in self.model_target.parameters():
@@ -34,6 +39,7 @@ class SoftActorCritic(nn.Module):
 
         self.test_iteration = 0
         self.iteration = 0
+        self.episodes = 0
 
     def compute_loss_q(self, data):
         o, a, r, o2, d = data['state'], data['action'], data['reward'], data['next_state'], data['done']
@@ -107,10 +113,10 @@ class SoftActorCritic(nn.Module):
         # get current weights
         self.q_optimizer.zero_grad()
         weights_before_steps = deepcopy(self.model.state_dict())
-        random_index = random.randint(1,self.args.replay_batch_size_mer)
+        random_index = random.randint(1,self.args.mer_replay_batch_size)
         for step in range(self.args.mer_steps):
             weights_before_batch = deepcopy(self.model.state_dict())
-            for j_step in range(self.args.replay_batch_size_mer):
+            for j_step in range(self.args.mer_replay_batch_size):
                 if j_step == random_index:
                     state, action, reward, next_state, done = self.current_sample
                 else:
@@ -147,16 +153,16 @@ class SoftActorCritic(nn.Module):
             # within batch reptile meta-update
             weights_after_batch = deepcopy(self.model.state_dict())
             self.model.load_state_dict({name: weights_before_batch[name] + (
-                    (weights_after_batch[name] - weights_before_batch[name]) * self.args.beta_mer) for
+                    (weights_after_batch[name] - weights_before_batch[name]) * self.args.mer_beta) for
                                         name in weights_before_batch})
             weights_after_steps = self.model.state_dict()
 
         # across batch reptile meta-update
         self.model.load_state_dict({name: weights_before_steps[name] + (
-                    (weights_after_steps[name] - weights_before_steps[name]) * self.args.gamma_mer) for
+                    (weights_after_steps[name] - weights_before_steps[name]) * self.args.mer_gamma) for
                                     name in weights_before_steps})
         # Reset target action-value network to real action-value network after a certain number of episodes
-        if self.episodes % self.args.update_target_every == 0:
+        if self.episodes % self.args.mer_update_target_every == 0:
             self.model_target = deepcopy(self.model)
 
     def get_action(self, state):
