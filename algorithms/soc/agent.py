@@ -201,6 +201,7 @@ class SoftOptionCritic(nn.Module):
         torch.nn.utils.clip_grad_norm_(self.beta_params, self.args.max_grad_clip)
         self.beta_optim.step()
         self.tb_writer.log_data("beta_policy_loss", self.iteration, loss_beta.item())
+        self.iteration += 1
 
         with torch.no_grad():
             for p, p_targ in zip(self.model.inter_q_function_1.parameters(), self.model_target.inter_q_function_1.parameters()):

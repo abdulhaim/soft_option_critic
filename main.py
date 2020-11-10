@@ -10,6 +10,7 @@ from misc.utils import set_log, make_env
 from misc.torch_utils import tensor
 from misc.tester import test_evaluation
 
+
 def train(args, agent, env, env_test, replay_buffer):
     ep_reward = 0
     ep_len = 0
@@ -45,8 +46,10 @@ def train(args, agent, env, env_test, replay_buffer):
         # Store experience to replay buffer
         if args.model_type == "SOC":
             replay_buffer.store(state, agent.current_option, action, reward, next_state, d)
+            agent.current_sample = (state, agent.current_option, action, reward, next_state, d)
         else:
             replay_buffer.store(state, action, reward, next_state, d)
+            agent.current_sample = (state, action, reward, next_state, d)
 
         if args.model_type == "SOC":
             beta_prob, beta = agent.predict_option_termination(tensor(next_state), agent.current_option)
@@ -65,9 +68,10 @@ def train(args, agent, env, env_test, replay_buffer):
             state = torch.tensor(next_state).float()
             if args.model_type == "SOC":
                 agent.current_option = agent.get_option(state, agent.get_epsilon())
+            agent.episodes += 1
 
         # Update handling
-        if total_step_count >= args.update_after and total_step_count % args.update_every == 0:
+        if not args.mer and total_step_count >= args.update_after and total_step_count % args.update_every == 0:
             for j in range(args.update_every):
                 batch = replay_buffer.sample_batch(args.batch_size)
                 if args.model_type == "SOC":
@@ -76,13 +80,14 @@ def train(args, agent, env, env_test, replay_buffer):
                     agent.update_loss_sac(data=batch)
             test_evaluation(args, agent, env_test)
 
+        if args.mer:
+            agent.update_sac_mer(replay_buffer)
+
         # Save model
         if total_step_count % args.save_model_every == 0:
             model_path = args.model_dir + args.model_type + "/" + args.env_name + '/'
             pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
             torch.save(agent.model.state_dict(), model_path + args.exp_name + str(total_step_count) + ".pth")
-
-        agent.iteration = total_step_count
 
 
 def main(args):
@@ -126,7 +131,13 @@ def main(args):
             args=args,
             tb_writer=tb_writer,
             log=log)
-        replay_buffer = ReplayBufferSAC(obs_dim=agent.obs_dim, act_dim=agent.action_dim, size=args.buffer_size)
+
+        if args.mer:
+            buffer_size = args.mer_replay_buffer_size
+        else:
+            buffer_size = args.buffer_size
+
+        replay_buffer = ReplayBufferSAC(obs_dim=agent.obs_dim, act_dim=agent.action_dim, size=buffer_size)
 
     train(args, agent, env, env_test, replay_buffer)
 
@@ -148,7 +159,7 @@ if __name__ == '__main__':
     parser.add_argument('--eps-start', type=float, default=1.0, help=('Starting value for epsilon.'))
     parser.add_argument('--eps-min', type=float, default=.15, help='Minimum epsilon.')
     parser.add_argument('--eps-decay', type=float, default=500000, help=('Number of steps to minimum epsilon.'))
-    parser.add_argument('--option-num', help='number of options', default=2)
+    parser.add_argument('--option-num', help='number of options', default=1)
 
     # Episodes and Exploration Parameters
     parser.add_argument('--total-step-num', help='total number of time steps', default=10000000)
@@ -168,7 +179,21 @@ if __name__ == '__main__':
     parser.add_argument('--save-model-every', help='Save model every certain number of steps', type=int, default=100000)
     parser.add_argument('--exp-name', help='Experiment Name', type=str, default="trial_1")
     parser.add_argument('--model_dir', help='Model directory', type=str, default="model/")
-    parser.add_argument('--model_type', help='Model Type', type=str, default="SOC")
+    parser.add_argument('--model_type', help='Model Type', type=str, default="SAC")
+
+    # MER hyper-parameters
+    parser.add_argument('--mer', type=bool, default=False, help='whether to use mer')
+    parser.add_argument('--mer-steps', type=int, default=1,
+                        help='beta learning rate parameter')  # exploration factor in roe
+    parser.add_argument('--beta-mer', type=float, default=1.0,
+                        help='beta learning rate parameter')  # exploration factor in roe
+    parser.add_argument('--lr-mer', type=float, default=1e-4, help='MER learning rate')  # exploration factor in roe
+    parser.add_argument('--gamma_mer', type=float, default=0.3,
+                        help='gamma learning rate parameter')  # gating net lr in roe
+    parser.add_argument('--replay_batch_size_mer', type=float, default=16,
+                        help='The batch size for experience replay. Denoted as k-1 in the paper.')
+    parser.add_argument('--mer_replay_buffer_size', type=int, default=50000, help='Replay buffer size')
+    parser.add_argument('--update-target-every', type=int, default=50, help='Replay buffer size')
 
     args = parser.parse_args()
     main(args)
