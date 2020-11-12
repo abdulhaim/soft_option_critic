@@ -38,7 +38,7 @@ class InterQFunction(torch.nn.Module):
         x = self.nonlin1(self.layer1(inputs))
         x = self.nonlin2(self.layer2(x))
         x = self.layer3(x)
-        return x  # don't squeeze for option=1
+        return x
 
 
 class IntraQFunction(torch.nn.Module):

@@ -15,7 +15,8 @@ def train(args, agent, env, env_test, replay_buffer):
     ep_reward = 0
     ep_len = 0
     state = tensor(env.reset())
-
+    cripple_list = [1.0, 0.66, 0.33, 0.0]
+    cripple_index = 0
     # Sample initial option for SOC
     if args.model_type == "SOC":
         agent.current_option = agent.get_option(state, agent.get_epsilon())
@@ -46,10 +47,22 @@ def train(args, agent, env, env_test, replay_buffer):
         # Store experience to replay buffer
         if args.model_type == "SOC":
             replay_buffer.store(state, agent.current_option, action, reward, next_state, d)
-            agent.current_sample = (state, agent.current_option, action, reward, next_state, d)
+            agent.current_sample = dict(
+                state=state,
+                option=agent.current_option,
+                action=action,
+                reward=reward,
+                next_state=next_state,
+                done=d)
+
         else:
             replay_buffer.store(state, action, reward, next_state, d)
-            agent.current_sample = (tensor(state), tensor(action), reward, tensor(next_state), d)
+            agent.current_sample = dict(
+                state=state,
+                action=action,
+                reward=reward,
+                next_state=next_state,
+                done=d)
 
         if args.model_type == "SOC":
             beta_prob, beta = agent.predict_option_termination(tensor(next_state), agent.current_option)
@@ -80,8 +93,9 @@ def train(args, agent, env, env_test, replay_buffer):
                     agent.update_loss_sac(data=batch)
             test_evaluation(args, agent, env_test)
 
-        if args.mer:
+        if total_step_count >= args.update_after and args.mer:
             agent.update_sac_mer(replay_buffer)
+            test_evaluation(args, agent, env_test)
 
         # Save model
         if total_step_count % args.save_model_every == 0:
@@ -89,8 +103,9 @@ def train(args, agent, env, env_test, replay_buffer):
             pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
             torch.save(agent.model.state_dict(), model_path + args.exp_name + str(total_step_count) + ".pth")
 
-        if args.change_task and args.change_every % agent.episodes == 0:
-            env, env_test = make_env(args.env_name, cripple_prob=1.0)
+        if args.change_task and total_step_count % args.change_every == 0:
+            cripple_index += 1
+            env, env_test = make_env(args.env_name, cripple_prob=cripple_list[cripple_index])
 
 
 def main(args):
@@ -162,10 +177,10 @@ if __name__ == '__main__':
     parser.add_argument('--eps-start', type=float, default=1.0, help=('Starting value for epsilon.'))
     parser.add_argument('--eps-min', type=float, default=.15, help='Minimum epsilon.')
     parser.add_argument('--eps-decay', type=float, default=500000, help=('Number of steps to minimum epsilon.'))
-    parser.add_argument('--option-num', help='number of options', default=1)
+    parser.add_argument('--option-num', help='number of options', default=2)
 
     # Episodes and Exploration Parameters
-    parser.add_argument('--total-step-num', help='total number of time steps', default=10000000)
+    parser.add_argument('--total-step-num', help='total number of time steps', default=6000000)
     parser.add_argument('--test-num', help='number of episode for recording the return', default=10)
     parser.add_argument('--max-steps', help='Maximum no of steps', type=int, default=1500000)
     parser.add_argument('--update-after', help='steps before updating', type=int, default=10000)
@@ -173,19 +188,19 @@ if __name__ == '__main__':
 
     # Environment Parameters
     parser.add_argument('--env_name', help='name of env', type=str,
-                        default="Pendulum-v0")
+                        default="BugCrippled")
     parser.add_argument('--random-seed', help='random seed for repeatability', default=1234)
     parser.add_argument('--max-episode-len', help='max length of 1 episode', default=1000)
 
     # Plotting Parameters
     parser.add_argument('--log_name', help='Log directory', type=str, default="logs")
-    parser.add_argument('--save-model-every', help='Save model every certain number of steps', type=int, default=100000)
+    parser.add_argument('--save-model-every', help='Save model every certain number of steps', type=int, default=300*1000)
     parser.add_argument('--exp-name', help='Experiment Name', type=str, default="trial_1")
     parser.add_argument('--model_dir', help='Model directory', type=str, default="model/")
     parser.add_argument('--model_type', help='Model Type', type=str, default="SAC")
 
     # MER hyper-parameters
-    parser.add_argument('--mer', type=bool, default=True, help='whether to use mer')
+    parser.add_argument('--mer', type=bool, default=False, help='whether to use mer')
     parser.add_argument('--mer-steps', type=int, default=1,
                         help='beta learning rate parameter')  # exploration factor in roe
     parser.add_argument('--mer-beta', type=float, default=1.0,
@@ -200,7 +215,7 @@ if __name__ == '__main__':
 
     # Non-stationarity
     parser.add_argument('--change-task', type=bool, default=False, help='whether to add non-stationarity')
-    parser.add_argument('--change-every-', type=int, default=300, help='numb of ep to change task')
+    parser.add_argument('--change-every', type=int, default=300000, help='numb of ep to change task')
 
     args = parser.parse_args()
     main(args)

@@ -47,15 +47,18 @@ class SoftOptionCritic(nn.Module):
 
         self.iteration = 0
         self.test_iteration = 0
+        self.episodes = 0
         # Freeze target networks with respect to optimizers (only update via polyak averaging)
         for p in self.model_target.parameters():
             p.requires_grad = False
 
-    def get_epsilon(self, decay=False):
+    def get_epsilon(self, decay=False, eval=False):
         if decay:
             eps = self.args.eps_min + (self.args.eps_start - self.args.eps_min) * exp(
                 -self.iteration / self.args.eps_decay)
             self.tb_writer.log_data("epsilon", self.iteration, eps)
+        elif eval:
+            eps = 0.0
         else:
             eps = self.args.eps_min
         return eps
@@ -127,7 +130,7 @@ class SoftOptionCritic(nn.Module):
             state_element = state[i]
             beta_prob_element, termination = self.predict_option_termination(tensor(next_state_element), option_element)
             beta_prob.append(beta_prob_element)
-            current_action_element, logp_element = self.model.intra_option_policies[0](state_element)
+            current_action_element, logp_element = self.model.intra_option_policies[option_element](state_element)
             logp.append(logp_element)
             current_actions.append(tensor(current_action_element))
 
