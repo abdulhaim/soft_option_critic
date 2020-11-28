@@ -1,17 +1,32 @@
 import logging
+from pendulum import PendulumEnv
+cripple_list = [1.0, 0.66, 0.33, 0.0]
+gravity_list = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
 
 
-def make_env(env_name, cripple_prob=1.0):
+def make_env(env_name, agent=None):
     if env_name == "BugCrippled":
         from gym_env.bug_crippled import BugCrippledEnv
-        env = BugCrippledEnv(cripple_prob=cripple_prob)
-        env_test = BugCrippledEnv(cripple_prob=cripple_prob)
+        env = BugCrippledEnv()
+        env_test = BugCrippledEnv()
+        if agent is not None:
+            env.cripple_prob = cripple_list[agent.nonstationarity_index]
+            env_test.cripple_prob = cripple_list[agent.nonstationarity_index]
+            agent.nonstationarity_index += 1
     elif env_name == "Pendulum-v0":
         import gym
-        env = gym.make(env_name)
-        env_test = gym.make(env_name)
-    return env, env_test
+        env = PendulumEnv()
+        env_test = PendulumEnv()
+        # env = gym.make(env_name)
+        #env_test = gym.make(env_name)
+        if agent is not None:
+            agent.nonstationarity_index += 1
+            env.g = gravity_list[agent.nonstationarity_index]
+            env_test.g = gravity_list[agent.nonstationarity_index]
 
+    env.reset()
+    env_test.reset()
+    return env, env_test
 
 def set_logger(logger_name, log_file, level=logging.INFO):
     log = logging.getLogger(logger_name)
@@ -24,6 +39,7 @@ def set_logger(logger_name, log_file, level=logging.INFO):
     log.setLevel(level)
     log.addHandler(fileHandler)
     log.addHandler(streamHandler)
+    log.propagate = False  # otherwise root logger prints things again
 
 
 def set_log(args):

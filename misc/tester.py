@@ -8,9 +8,9 @@ def test_evaluation(args, agent, test_env, num_test_episodes=10, max_ep_len=1000
             agent.current_option = agent.get_option(tensor(state), agent.get_epsilon(eval=True))
         while not (done or (ep_len == max_ep_len)):
             if args.model_type == "SOC":
-                action, _ = agent.get_action(agent.current_option, tensor(state))
+                action, _ = agent.get_action(agent.current_option, state)
             else:
-                action, _ = agent.get_action(tensor(state))
+                action, _ = agent.get_action(state)
 
             # Take deterministic actions at test time
             state, reward, done, _ = test_env.step(action)
