@@ -27,8 +27,12 @@ class SoftActorCritic(nn.Module):
 
         # Parameter Definitions
         self.q_params = itertools.chain(self.model.q_function_1.parameters(), self.model.q_function_2.parameters())
-        self.pi_optimizer = Adam(self.model.policy.parameters(), lr=args.lr)
-        self.q_optimizer = Adam(self.q_params, lr=args.lr)
+        if args.mer:
+            self.pi_optimizer = Adam(self.model.policy.parameters(), lr=args.mer_lr)
+            self.q_optimizer = Adam(self.q_params, lr=args.mer_lr)
+        else:
+            self.pi_optimizer = Adam(self.model.policy.parameters(), lr=args.lr)
+            self.q_optimizer = Adam(self.q_params, lr=args.lr)
 
         self.test_iteration = 0
         self.iteration = 0
@@ -103,43 +107,38 @@ class SoftActorCritic(nn.Module):
 
     def update_sac_mer(self, replay_buffer):
         # get current weights
-        weights_before_steps = deepcopy(self.model.state_dict())
+        # weights_before_steps = deepcopy(self.model.state_dict())
         random_index = random.randint(1, self.args.mer_replay_batch_size)
-        for step in range(self.args.mer_steps):
-            weights_before_batch = deepcopy(self.model.state_dict())
-            for j_step in range(self.args.mer_replay_batch_size):
-                if j_step == random_index:
-                    data = self.get_current_sample()
-                else:
-                    data = replay_buffer.sample_batch(1)
+        self.q_optimizer.zero_grad()
+        self.pi_optimizer.zero_grad()
 
-                # First run one gradient descent step for Q1 and Q2
-                self.q_optimizer.zero_grad()
-                loss_q = self.compute_loss_q(data)
-                loss_q.backward()
-                torch.nn.utils.clip_grad_norm_(self.q_params, self.args.max_grad_clip)
-                self.q_optimizer.step()
-                self.tb_writer.log_data("q_function_loss", self.iteration, loss_q.item())
+        # for step in range(self.args.mer_steps):
+        weights_before_batch = deepcopy(self.model.state_dict())
+        for j_step in range(4):
+            if j_step == random_index:
+                data = self.get_current_sample()
+            else:
+                data = replay_buffer.sample_batch(4)
 
-                # Next run one gradient descent step for pi
-                self.pi_optimizer.zero_grad()
-                loss_pi = self.compute_loss_pi(data)
-                loss_pi.backward()
-                torch.nn.utils.clip_grad_norm_(self.model.policy.parameters(), self.args.max_grad_clip)
-                self.pi_optimizer.step()
-                self.tb_writer.log_data("policy_loss", self.iteration, loss_pi.item())
+            # First run one gradient descent step for Q1 and Q2
+            loss_q = self.compute_loss_q(data)
+            loss_q.backward()
+            torch.nn.utils.clip_grad_norm_(self.q_params, self.args.max_grad_clip)
+            self.q_optimizer.step()
+            self.tb_writer.log_data("q_function_loss", self.iteration, loss_q.item())
+
+            # Next run one gradient descent step for pi
+            loss_pi = self.compute_loss_pi(data)
+            loss_pi.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.policy.parameters(), self.args.max_grad_clip)
+            self.pi_optimizer.step()
+            self.tb_writer.log_data("policy_loss", self.iteration, loss_pi.item())
 
             # within batch reptile meta-update
-            weights_after_batch = deepcopy(self.model.state_dict())
-            self.model.load_state_dict({name: weights_before_batch[name] + (
-                    (weights_after_batch[name] - weights_before_batch[name]) * self.args.mer_beta) for
+        weights_after_batch = deepcopy(self.model.state_dict())
+        self.model.load_state_dict({name: weights_before_batch[name] + (
+                    (weights_after_batch[name] - weights_before_batch[name]) * self.args.gamma) for
                                         name in weights_before_batch})
-            weights_after_steps = self.model.state_dict()
-
-        # across batch reptile meta-update
-        self.model.load_state_dict({name: weights_before_steps[name] + (
-                (weights_after_steps[name] - weights_before_steps[name]) * self.args.mer_gamma) for
-                                    name in weights_before_steps})
 
         self.update_target_networks()
 

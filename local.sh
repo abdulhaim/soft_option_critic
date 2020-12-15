@@ -2,7 +2,7 @@
 
 FOLDER_NAME="soft_option_critic"
 declare -a arr=(
-    "ec2-34-229-121-23.compute-1.amazonaws.com"
+    "ec2-3-239-126-247.compute-1.amazonaws.com"
     )
 
 for SSH_ADDRESS in "${arr[@]}"
@@ -11,7 +11,7 @@ do
 
     # Pass folder that I want to train
     ssh -i ~/Downloads/dongki.pem ubuntu@$SSH_ADDRESS "mkdir /home/ubuntu/$FOLDER_NAME"
-    scp -i ~/Downloads/dongki.pem -r ~/Desktop/meng_repos/"soft_option_critic" ubuntu@$SSH_ADDRESS:/home/ubuntu/
+    scp -i ~/Downloads/dongki.pem -r ~/Desktop/git\ repos/"soft_option_critic" ubuntu@$SSH_ADDRESS:/home/ubuntu/
 
 done
 

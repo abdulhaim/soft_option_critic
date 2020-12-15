@@ -1,7 +1,7 @@
 import logging
 from pendulum import PendulumEnv
 cripple_list = [1.0, 0.66, 0.33, 0.0]
-gravity_list = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
+gravity_list = [2.0, 4.0, 6.0, 2.0, 10.0]
 
 
 def make_env(env_name, agent=None):
@@ -17,12 +17,15 @@ def make_env(env_name, agent=None):
         import gym
         env = PendulumEnv()
         env_test = PendulumEnv()
-        # env = gym.make(env_name)
-        #env_test = gym.make(env_name)
         if agent is not None:
             agent.nonstationarity_index += 1
             env.g = gravity_list[agent.nonstationarity_index]
             env_test.g = gravity_list[agent.nonstationarity_index]
+
+    elif env_name == "Acrobot-v1":
+        import gym
+        env = gym.make(env_name)
+        env_test = gym.make(env_name)
 
     env.reset()
     env_test.reset()

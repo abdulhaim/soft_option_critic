@@ -53,7 +53,11 @@ def train(args, agent, env, env_test, replay_buffer):
                 done=d)
 
         else:
-            replay_buffer.store(state, action, reward, next_state, d)
+            if args.mer:
+                replay_buffer.store_mer(state, action, reward, next_state, d)
+            else:
+                replay_buffer.store(state, action, reward, next_state, d)
+
             agent.current_sample = dict(
                 state=np.array([state]),
                 action=np.array([action]),
@@ -77,6 +81,7 @@ def train(args, agent, env, env_test, replay_buffer):
 
         if d or (ep_len == args.max_episode_len):
             agent.tb_writer.log_data("episodic_reward", total_step_count, ep_reward)
+            agent.tb_writer.log_data("episodic_reward_time", time.time() - start_time, ep_reward)
             state, ep_reward, ep_len = env.reset(), 0, 0
             if args.model_type == "SOC":
                 agent.current_option = agent.get_option(state, agent.get_epsilon())
@@ -98,7 +103,7 @@ def train(args, agent, env, env_test, replay_buffer):
             test_evaluation(args, agent, env_test)
 
         # Changing Task
-        if args.change_task and total_step_count % args.change_every == 0 and total_step_count != 0:
+        if total_step_count > args.update_after and args.change_task and total_step_count % args.change_every == 0 and total_step_count != 0:
             env, env_test = make_env(args.env_name, agent)
 
         # Save model
@@ -187,7 +192,7 @@ if __name__ == '__main__':
     parser.add_argument('--max-steps', help='Maximum no of steps', type=int, default=1500000)
     parser.add_argument('--update-after', help='steps before updating', type=int, default=1000)
     parser.add_argument('--update-every', help='update model after certain number steps', type=int, default=50)
-    parser.add_argument('--log-reward', help='logging reward steps', type=int, default=4000)
+    parser.add_argument('--log-reward', help='logging reward steps', type=int, default=1000)
 
     # Environment Parameters
     parser.add_argument('--env_name', help='name of env', type=str,
@@ -198,27 +203,23 @@ if __name__ == '__main__':
     # Plotting Parameters
     parser.add_argument('--log_name', help='Log directory', type=str, default="logs")
     parser.add_argument('--save-model-every', help='Save model every certain number of steps', type=int, default=50000)
-    parser.add_argument('--exp-name', help='Experiment Name', type=str, default="sac_trial")
+    parser.add_argument('--exp-name', help='Experiment Name', type=str, default="sac_mer_trial_1")
     parser.add_argument('--model_dir', help='Model directory', type=str, default="model/")
     parser.add_argument('--model_type', help='Model Type', type=str, default="SAC")
 
     # MER hyper-parameters
     parser.add_argument('--mer', type=bool, default=False, help='whether to use mer')
-    parser.add_argument('--mer-steps', type=int, default=1,
-                        help='beta learning rate parameter')  # exploration factor in roe
-    parser.add_argument('--mer-beta', type=float, default=1.0,
-                        help='beta learning rate parameter')  # exploration factor in roe
     parser.add_argument('--mer-lr', type=float, default=1e-4, help='MER learning rate')  # exploration factor in roe
-    parser.add_argument('--mer-gamma', type=float, default=0.3,
+    parser.add_argument('--mer-gamma', type=float, default=0.03,
                         help='gamma learning rate parameter')  # gating net lr in roe
     parser.add_argument('--mer-replay_batch_size', type=float, default=16,
                         help='The batch size for experience replay. Denoted as k-1 in the paper.')
-    parser.add_argument('--mer_replay_buffer_size', type=int, default=50000, help='Replay buffer size')
+    parser.add_argument('--mer_replay_buffer_size', type=int, default=5000, help='Replay buffer size')
     parser.add_argument('--mer-update-target-every', type=int, default=50, help='Replay buffer size')
 
     # Non-stationarity
     parser.add_argument('--change-task', type=bool, default=False, help='whether to add non-stationarity')
-    parser.add_argument('--change-every', type=int, default=10000, help='numb of ep to change task')
+    parser.add_argument('--change-every', type=int, default=5000, help='numb of ep to change task')
 
     args = parser.parse_args()
     main(args)

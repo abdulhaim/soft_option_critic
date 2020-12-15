@@ -1,5 +1,5 @@
 import torch
-
+import random
 from misc.torch_utils import combined_shape
 import numpy as np
 
@@ -8,6 +8,7 @@ class ReplayBufferSAC(object):
     """
     Replay Buffer for Soft Actor Critic
     """
+
     def __init__(self, obs_dim, act_dim, size):
         self.state_buf = np.zeros(combined_shape(size, obs_dim), dtype=np.float32)
         self.next_state_buf = np.zeros(combined_shape(size, obs_dim), dtype=np.float32)
@@ -24,6 +25,26 @@ class ReplayBufferSAC(object):
         self.done_buf[self.ptr] = done
         self.ptr = (self.ptr + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
+
+    def store_mer(self, obs, act, rew, next_obs, done):
+        if self.size >= self.max_size:
+            p = random.randint(0, self.ptr)
+            if p < self.max_size:
+                self.state_buf[p] = obs
+                self.next_state_buf[p] = next_obs
+                self.action_buf[p] = act
+                self.reward_buf[p] = rew
+                self.done_buf[p] = done
+
+        else:
+            self.state_buf[self.ptr] = obs
+            self.next_state_buf[self.ptr] = next_obs
+            self.action_buf[self.ptr] = act
+            self.reward_buf[self.ptr] = rew
+            self.done_buf[self.ptr] = done
+
+        self.size = min(self.size + 1, self.max_size)
+        self.ptr += 1
 
     def sample_batch(self, batch_size=32):
         idxs = np.random.randint(0, self.size, size=batch_size)
