@@ -8,6 +8,22 @@ if use_cuda:
     torch.set_default_tensor_type('torch.cuda.FloatTensor')
 device = torch.device("cuda" if use_cuda else "cpu")
 
+
+def to_onehot(value, dim):
+    """Convert batch of numbers to onehot
+
+    Args:
+        value (numpy.ndarray): Batch of numbers to convert to onehot. Shape: (batch,)
+        dim (int): Dimension of onehot
+    Returns:
+        onehot (numpy.ndarray): Converted onehot. Shape: (batch, dim)
+    """
+    value = value.squeeze(-1)
+    one_hot = torch.zeros(value.shape[0], dim)
+    one_hot[torch.arange(value.shape[0]), value.long()] = 1
+    return one_hot
+
+
 def combined_shape(length, shape=None):
     if shape is None:
         return (length,)

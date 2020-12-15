@@ -4,7 +4,7 @@ cripple_list = [1.0, 0.66, 0.33, 0.0]
 gravity_list = [2.0, 4.0, 6.0, 2.0, 10.0]
 
 
-def make_env(env_name, agent=None):
+def make_env(env_name, args, agent=None):
     if env_name == "BugCrippled":
         from gym_env.bug_crippled import BugCrippledEnv
         env = BugCrippledEnv()
@@ -13,6 +13,7 @@ def make_env(env_name, agent=None):
             env.cripple_prob = cripple_list[agent.nonstationarity_index]
             env_test.cripple_prob = cripple_list[agent.nonstationarity_index]
             agent.nonstationarity_index += 1
+        args.max_episode_len = 1000
     elif env_name == "Pendulum-v0":
         import gym
         env = PendulumEnv()
@@ -21,11 +22,13 @@ def make_env(env_name, agent=None):
             agent.nonstationarity_index += 1
             env.g = gravity_list[agent.nonstationarity_index]
             env_test.g = gravity_list[agent.nonstationarity_index]
+        args.max_episode_len = 200
 
     elif env_name == "Acrobot-v1":
         import gym
         env = gym.make(env_name)
         env_test = gym.make(env_name)
+        args.max_episode_len = 500
 
     env.reset()
     env_test.reset()

@@ -4,21 +4,30 @@ import random
 
 from copy import deepcopy
 from algorithms.sac.model import SACModel
+from algorithms.sac.categorical_model import SACModel as SACModelCategorical
+
 from torch.optim import Adam
 import torch.nn as nn
+from misc.torch_utils import to_onehot
+
 
 class SoftActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, args, tb_writer, log):
         super(SoftActorCritic, self).__init__()
 
         self.obs_dim = observation_space.shape[0]
-        self.action_dim = action_space.shape[0]
         self.args = args
         self.tb_writer = tb_writer
         self.log = log
 
         # Q Function Definitions
-        self.model = SACModel(observation_space, action_space, args.hidden_size)
+        if args.env_type == 'categorical':
+            self.action_dim = 3
+            self.model = SACModelCategorical(observation_space, action_space, args.hidden_size)
+        else:
+            self.action_dim = action_space.shape[0]
+            self.model = SACModel(observation_space, action_space, args.hidden_size)
+
         self.model_target = deepcopy(self.model)
 
         # Freeze target networks with respect to optimizers (only update via polyak averaging)
@@ -44,6 +53,8 @@ class SoftActorCritic(nn.Module):
 
     def compute_loss_q(self, data):
         o, a, r, o2, d = data['state'], data['action'], data['reward'], data['next_state'], data['done']
+        a = to_onehot(a, self.action_dim)
+
         q1 = self.model.q_function_1(o, a)
         q2 = self.model.q_function_2(o, a)
 
@@ -51,6 +62,7 @@ class SoftActorCritic(nn.Module):
         with torch.no_grad():
             # Target actions come from *current* policy
             a2, logp_a2 = self.model.policy(o2)
+            a2 = to_onehot(a2, self.action_dim)
 
             # Target Q-values
             q1_pi_targ = self.model_target.q_function_1(o2, a2)
@@ -67,6 +79,7 @@ class SoftActorCritic(nn.Module):
     def compute_loss_pi(self, data):
         o = data['state']
         pi, logp_pi = self.model.policy(o)
+        pi = to_onehot(pi, self.action_dim)
 
         q1_pi = self.model.q_function_1(o, pi)
         q2_pi = self.model.q_function_2(o, pi)
@@ -137,8 +150,8 @@ class SoftActorCritic(nn.Module):
             # within batch reptile meta-update
         weights_after_batch = deepcopy(self.model.state_dict())
         self.model.load_state_dict({name: weights_before_batch[name] + (
-                    (weights_after_batch[name] - weights_before_batch[name]) * self.args.gamma) for
-                                        name in weights_before_batch})
+                (weights_after_batch[name] - weights_before_batch[name]) * self.args.gamma) for
+                                    name in weights_before_batch})
 
         self.update_target_networks()
 

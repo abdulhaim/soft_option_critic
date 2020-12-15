@@ -104,7 +104,7 @@ def train(args, agent, env, env_test, replay_buffer):
 
         # Changing Task
         if total_step_count > args.update_after and args.change_task and total_step_count % args.change_every == 0 and total_step_count != 0:
-            env, env_test = make_env(args.env_name, agent)
+            env, env_test = make_env(args.env_name, args, agent)
 
         # Save model
         if total_step_count % args.save_model_every == 0:
@@ -125,7 +125,7 @@ def main(args):
     log = set_log(args)
     tb_writer = TensorBoardLogger(logdir=args.log_name, run_name=args.env_name + time.ctime())
 
-    env, env_test = make_env(args.env_name)
+    env, env_test = make_env(args.env_name, args)
     # Set seeds
     random.seed(args.random_seed)
     np.random.seed(args.random_seed)
@@ -162,7 +162,7 @@ def main(args):
         else:
             buffer_size = args.buffer_size
 
-        replay_buffer = ReplayBufferSAC(obs_dim=agent.obs_dim, act_dim=agent.action_dim, size=buffer_size)
+        replay_buffer = ReplayBufferSAC(obs_dim=agent.obs_dim, act_dim=1, size=buffer_size)
 
     train(args, agent, env, env_test, replay_buffer)
 
@@ -196,14 +196,14 @@ if __name__ == '__main__':
 
     # Environment Parameters
     parser.add_argument('--env_name', help='name of env', type=str,
-                        default="Pendulum-v0")
+                        default="Acrobot-v1")
     parser.add_argument('--random-seed', help='random seed for repeatability', default=1)
-    parser.add_argument('--max-episode-len', help='max length of 1 episode', default=200)
-
+    parser.add_argument('--max-episode-len', help='max length of 1 episode', default=500)
+    parser.add_argument('--env-type', help='type of env', type=str, default="categorical")
     # Plotting Parameters
     parser.add_argument('--log_name', help='Log directory', type=str, default="logs")
     parser.add_argument('--save-model-every', help='Save model every certain number of steps', type=int, default=50000)
-    parser.add_argument('--exp-name', help='Experiment Name', type=str, default="sac_mer_trial_1")
+    parser.add_argument('--exp-name', help='Experiment Name', type=str, default="sac_acrobot_1")
     parser.add_argument('--model_dir', help='Model directory', type=str, default="model/")
     parser.add_argument('--model_type', help='Model Type', type=str, default="SAC")
 
