@@ -11,6 +11,7 @@ def test_evaluation(args, agent, test_env, num_test_episodes=10, max_ep_len=200,
                 action, _ = agent.get_action(agent.current_option, state)
             else:
                 action, _ = agent.get_action(state, deterministic=True)
+                action = action[0]
 
             # Take deterministic actions at test time
             state, reward, done, _ = test_env.step(action)
@@ -23,4 +24,3 @@ def test_evaluation(args, agent, test_env, num_test_episodes=10, max_ep_len=200,
                     agent.current_option = agent.get_option(tensor(state), agent.get_epsilon(eval=True))
 
         agent.tb_writer.log_data(log_name + str(j), step_count, ep_ret)
-

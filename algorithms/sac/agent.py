@@ -1,14 +1,12 @@
 import itertools
 import torch
 import random
-
+import torch.nn as nn
+import torch.nn.functional as F
 from copy import deepcopy
 from algorithms.sac.model import SACModel
 from algorithms.sac.categorical_model import SACModelCategorical
-
 from torch.optim import Adam
-import torch.nn as nn
-from misc.torch_utils import to_onehot
 
 
 class SoftActorCritic(nn.Module):
@@ -20,9 +18,12 @@ class SoftActorCritic(nn.Module):
         self.tb_writer = tb_writer
         self.log = log
 
+        # TODO You can select env_type based on action_space in gym environment
+        # so that you can remove the env_type in the argument
         if args.env_type == 'categorical':
             self.action_dim = action_space.n
             self.model = SACModelCategorical(observation_space, action_space, args.hidden_size)
+            # TODO I would log self.model
         else:
             self.action_dim = action_space.shape[0]
             self.model = SACModel(observation_space, action_space, args.hidden_size)
@@ -59,7 +60,7 @@ class SoftActorCritic(nn.Module):
         # Bellman backup for Q functions
         with torch.no_grad():
             # Target actions come from *current* policy
-            a2, logp_a2 = self.model.policy(o2)
+            a2, logp_a2 = self.model.policy(o2, with_logprob=True)
 
             # Target Q-values
             q1_pi_targ = self.model_target.q_function_1(o2)
@@ -67,22 +68,27 @@ class SoftActorCritic(nn.Module):
             q_pi_targ = torch.min(q1_pi_targ, q2_pi_targ)
             # TODO: Assert functions for dimensions to ensure
             backup = r + self.args.gamma * (1 - d) * (a2 * (q_pi_targ - self.args.alpha * logp_a2)).sum(dim=-1)
+            backup = torch.unsqueeze(backup, -1)
+
         # MSE loss against Bellman backup
-        loss_q1 = ((torch.gather(q1, 1, a.long()) - backup) ** 2).mean()
-        loss_q2 = ((torch.gather(q2, 1, a.long()) - backup) ** 2).mean()
+        # torch.gather(q1, 1, a.long()) shape: (100, 1)
+        # backup: (100) -> (100, 1)
+        loss_q1 = F.mse_loss(torch.gather(q1, 1, a.long()), backup)
+        loss_q2 = F.mse_loss(torch.gather(q2, 1, a.long()), backup)
         loss_q = loss_q1 + loss_q2
 
         return loss_q
 
     def compute_loss_pi(self, data):
         o = data['state']
-        pi, logp_pi = self.model.policy(o)
+        pi, logp_pi = self.model.policy(o, with_logprob=True)
 
-        q1_pi = self.model.q_function_1(o)
-        q2_pi = self.model.q_function_2(o)
-        q_pi = torch.min(q1_pi, q2_pi)
+        q1_pi = self.model.q_function_1(o).detach()
+        # q2_pi = self.model.q_function_2(o).detach()
+        # q_pi = torch.min(q1_pi, q2_pi)
+
         # Entropy-regularized policy loss
-        loss_pi = (pi * (self.args.alpha * logp_pi - q_pi)).sum(dim=-1).mean()
+        loss_pi = (pi * (self.args.alpha * logp_pi - q1_pi)).sum(dim=-1).mean()
         return loss_pi
 
     def update_loss_sac(self, data):
@@ -94,10 +100,10 @@ class SoftActorCritic(nn.Module):
         self.q_optimizer.step()
         self.tb_writer.log_data("q_function_loss", self.iteration, loss_q.item())
 
-        # Freeze Q-networks so you don't waste computational effort
-        # computing gradients for them during the policy learning step.
-        for p in self.q_params:
-            p.requires_grad = False
+        # # Freeze Q-networks so you don't waste computational effort
+        # # computing gradients for them during the policy learning step.
+        # for p in self.q_params:
+        #     p.requires_grad = False
 
         # Next run one gradient descent step for pi
         self.pi_optimizer.zero_grad()
@@ -107,9 +113,9 @@ class SoftActorCritic(nn.Module):
         self.pi_optimizer.step()
         self.tb_writer.log_data("policy_loss", self.iteration, loss_pi.item())
 
-        # Unfreeze Q-networks so you can optimize it at next DDPG step.
-        for p in self.q_params:
-            p.requires_grad = True
+        # # Unfreeze Q-networks so you can optimize it at next DDPG step.
+        # for p in self.q_params:
+        #     p.requires_grad = True
 
         self.update_target_networks()
 

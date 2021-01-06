@@ -6,7 +6,11 @@ gravity_list = [2.0, 4.0, 6.0, 2.0, 10.0]
 #length_list = [1.2, 1.4, 1.6, 1.8, 2.0]
 length_list = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]
 
+
 def make_env(env_name, args, agent=None):
+    # TODO Move to gym_env.__init__.py
+    # so that you can import make_env by 
+    # from gym_env import make_env
     if env_name == "BugCrippled":
         from gym_env.bug_crippled import BugCrippledEnv
         env = BugCrippledEnv()
@@ -56,6 +60,7 @@ def make_env(env_name, args, agent=None):
         old_env_test = gym.make("MountainCar-v0")
         args.max_episode_len = 200
 
+    # TODO I wonder whether it is needed to reset here :)
     env.reset()
     env_test.reset()
     old_env_test.reset()

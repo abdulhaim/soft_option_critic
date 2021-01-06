@@ -13,6 +13,7 @@ from misc.tester import test_evaluation
 
 def train(args, agent, env, env_test, old_env_test, replay_buffer):
     state, ep_reward, ep_len = env.reset(), 0, 0
+
     # Sample initial option for SOC
     if args.model_type == "SOC":
         agent.current_option = agent.get_option(state, agent.get_epsilon())
@@ -27,6 +28,7 @@ def train(args, agent, env, env_test, old_env_test, replay_buffer):
                 action, _ = agent.get_action(agent.current_option, state)
             else:
                 action, _ = agent.get_action(state)
+                action = action[0]
         else:
             if args.model_type == "SOC":
                 agent.current_option = agent.get_option(tensor(state), agent.get_epsilon())
@@ -39,7 +41,9 @@ def train(args, agent, env, env_test, old_env_test, replay_buffer):
         # Ignore the "done" signal if it comes from hitting the time
         # horizon (that is, when it's an artificial terminal signal
         # that isn't based on the agent's state)
-        d = False if ep_len == args.max_episode_len else done
+        # TODO Think about it ... but it should be True I think
+        # d = False if ep_len == args.max_episode_len else done
+        d = True if ep_len == args.max_episode_len else done
 
         # Store experience to replay buffer
         if args.model_type == "SOC":
@@ -51,7 +55,6 @@ def train(args, agent, env, env_test, old_env_test, replay_buffer):
                 reward=reward,
                 next_state=next_state,
                 done=d)
-
         else:
             if args.mer:
                 replay_buffer.store_mer(state, action, reward, next_state, d)
@@ -76,8 +79,8 @@ def train(args, agent, env, env_test, old_env_test, replay_buffer):
 
         # End of trajectory handling
         if (total_step_count + 1) % args.log_reward == 0:
-            agent.log[args.log_name].info("Returns: {:.3f} at iteration {}, time {}".format(ep_reward, total_step_count,
-                                                                                            time.time() - start_time))
+            agent.log[args.log_name].info("Returns: {:.3f} at iteration {}, time {}".format(
+                ep_reward, total_step_count, time.time() - start_time))
 
         if d or (ep_len == args.max_episode_len):
             agent.tb_writer.log_data("episodic_reward", total_step_count, ep_reward)
@@ -91,7 +94,7 @@ def train(args, agent, env, env_test, old_env_test, replay_buffer):
             agent.episodes += 1
 
         # Update handling
-        if not args.mer and total_step_count >= args.update_after and total_step_count % args.update_every == 0:
+        if not args.mer and total_step_count >= args.update_after and total_step_count % args.update_every == 0 and total_step_count > args.update_every:
             for j in range(args.update_every):
                 batch = replay_buffer.sample_batch(args.batch_size)
                 if args.model_type == "SOC":
@@ -125,7 +128,17 @@ def main(args):
     log = set_log(args)
     tb_writer = TensorBoardLogger(logdir=args.log_name, run_name=args.env_name + time.ctime())
 
+    # TODO In the meta-learning literature, they have one more function in gym env called
+    # reset_task: https://github.com/lmzintgraf/cavia/blob/master/rl/envs/navigation.py#L44
+    # which is called before reset() function.
+    # So the idea is that you want to have only one env variable, but you can use the reste_task function
+    # to do whatever you wanna do :)
+    #
+    # env.reset_task(task=x)
+    # obs = env.reset()
+    # TODO TO delete env_test and old_env_test
     env, env_test, old_env_test = make_env(args.env_name, args)
+
     # Set seeds
     random.seed(args.random_seed)
     np.random.seed(args.random_seed)
@@ -162,18 +175,14 @@ def main(args):
             args=args,
             tb_writer=tb_writer,
             log=log)
-
-        if args.mer:
-            buffer_size = args.mer_replay_buffer_size
-        else:
-            buffer_size = args.buffer_size
-
+        buffer_size = args.mer_replay_buffer_size if args.mer else args.buffer_size
         replay_buffer = ReplayBufferSAC(obs_dim=agent.obs_dim, act_dim=1, size=buffer_size)
 
     train(args, agent, env, env_test, old_env_test, replay_buffer)
 
 
 if __name__ == '__main__':
+    # TODO Create argument.py and move arguments there
     parser = argparse.ArgumentParser(description='provide arguments for AdInfoHRLTD3 algorithms')
 
     # Actor Critic Parameters
@@ -182,7 +191,7 @@ if __name__ == '__main__':
     parser.add_argument('--alpha', help='Entropy regularization coefficient', default=0.2)
     parser.add_argument('--polyak', help='averaging for target networks', default=0.995)
     parser.add_argument('--buffer-size', help='max size of the replay buffer', default=1000000)
-    parser.add_argument('--hidden-size', help='number of units in the hidden layers', default=256)
+    parser.add_argument('--hidden-size', help='number of units in the hidden layers', default=64)
     parser.add_argument('--batch-size', help='size of minibatch for minibatch-SGD', default=100)
     parser.add_argument("--max-grad-clip", type=float, default=5.0, help="Max norm gradient clipping value")
 
@@ -196,16 +205,16 @@ if __name__ == '__main__':
     parser.add_argument('--total-step-num', help='total number of time steps', default=6000000)
     parser.add_argument('--test-num', help='number of episode for recording the return', default=10)
     parser.add_argument('--max-steps', help='Maximum no of steps', type=int, default=1500000)
-    parser.add_argument('--update-after', help='steps before updating', type=int, default=1000)
+    parser.add_argument('--update-after', help='steps before updating', type=int, default=500)
     parser.add_argument('--update-every', help='update model after certain number steps', type=int, default=50)
     parser.add_argument('--log-reward', help='logging reward steps', type=int, default=1000)
 
     # Environment Parameters
-    parser.add_argument('--env_name', help='name of env', type=str,
-                        default="CartPole-v1")
+    parser.add_argument('--env_name', help='name of env', type=str, default="CartPole-v1")
     parser.add_argument('--random-seed', help='random seed for repeatability', default=7)
     parser.add_argument('--max-episode-len', help='max length of 1 episode', default=200)
     parser.add_argument('--env-type', help='type of env', type=str, default="categorical")
+
     # Plotting Parameters
     parser.add_argument('--log_name', help='Log directory', type=str, default="logs")
     parser.add_argument('--save-model-every', help='Save model every certain number of steps', type=int, default=50000)
@@ -226,6 +235,9 @@ if __name__ == '__main__':
     # Non-stationarity
     parser.add_argument('--change-task', type=bool, default=False, help='whether to add non-stationarity')
     parser.add_argument('--change-every', type=int, default=50000, help='numb of ep to change task')
+
+    # TODO For log_name, more complicated such that time information itself is not informative
+    # You want to have log_name to log important hyperparams = "lr::%s".format(args.lr)
 
     args = parser.parse_args()
     main(args)
