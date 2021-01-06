@@ -11,6 +11,7 @@ from torch.optim import Adam
 from torch.distributions import Bernoulli
 from misc.torch_utils import tensor, convert_onehot
 from algorithms.soc.model import SOCModel
+from algorithms.soc.categorical_model import SOCModelCategorical
 
 
 class SoftOptionCritic(nn.Module):
@@ -19,13 +20,18 @@ class SoftOptionCritic(nn.Module):
 
         self.obs_dim = observation_space.shape[0]
         self.action_space = action_space
-        self.action_dim = action_space.shape[0]
         self.option_num = args.option_num
         self.args = args
         self.tb_writer = tb_writer
         self.log = log
 
-        self.model = SOCModel(self.obs_dim, self.action_dim, self.args.hidden_size, self.option_num, action_space.high[0])
+        if args.env_type == 'categorical':
+            self.action_dim = action_space.n
+            self.model = SOCModelCategorical(self.obs_dim, self.action_dim, args.hidden_size, self.option_num)
+        else:
+            self.action_dim = action_space.shape[0]
+            self.model = SOCModel(self.obs_dim, self.action_dim, self.args.hidden_size, self.option_num, action_space.high[0])
+
         self.model_target = deepcopy(self.model)
 
         # Parameter Definitions
@@ -144,7 +150,7 @@ class SoftOptionCritic(nn.Module):
             q_inter_targ_next_option = torch.gather(q_inter_targ, 1, next_option).squeeze(-1)
 
             backup_intra = reward + self.args.gamma * (1. - done) * (((1. - beta_prob) * q_inter_targ_current_option) +
-                                                                     (beta_prob * q_inter_targ_next_option))
+                                                                     (beta_prob * q_inter_targ_next_option)).sum(dim=-1)
         # Intra-Q Function Loss
         loss_intra_q1 = ((q1_intra - backup_intra.detach()) ** 2).mean()
         loss_intra_q2 = ((q2_intra - backup_intra.detach()) ** 2).mean()

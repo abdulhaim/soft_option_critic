@@ -1,8 +1,10 @@
 import logging
 from pendulum import PendulumEnv
+from cartpole import CartPoleEnv
 cripple_list = [1.0, 0.66, 0.33, 0.0]
 gravity_list = [2.0, 4.0, 6.0, 2.0, 10.0]
-
+#length_list = [1.2, 1.4, 1.6, 1.8, 2.0]
+length_list = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]
 
 def make_env(env_name, args, agent=None):
     if env_name == "BugCrippled":
@@ -28,11 +30,36 @@ def make_env(env_name, args, agent=None):
         import gym
         env = gym.make(env_name)
         env_test = gym.make(env_name)
+        old_env_test = gym.make(env_name)
+        args.max_episode_len = 10000
+
+    elif env_name == "CartPole-v1":
+        import gym
+        env = CartPoleEnv()
+        env_test = CartPoleEnv()
+        old_env_test = CartPoleEnv()
         args.max_episode_len = 500
+        if agent is not None:
+            agent.nonstationarity_index += 1
+            env.length = length_list[agent.nonstationarity_index]
+            env_test.length = length_list[agent.nonstationarity_index]
+            old_env_test.length = length_list[0]
+        else:
+            env.length = length_list[0]
+            env_test.length = length_list[0]
+            old_env_test.length = length_list[0]
+
+    elif env_name == "MountainCar-v0":
+        import gym
+        env = gym.make("MountainCar-v0")
+        env_test = gym.make("MountainCar-v0")
+        old_env_test = gym.make("MountainCar-v0")
+        args.max_episode_len = 200
 
     env.reset()
     env_test.reset()
-    return env, env_test
+    old_env_test.reset()
+    return env, env_test, old_env_test
 
 def set_logger(logger_name, log_file, level=logging.INFO):
     log = logging.getLogger(logger_name)

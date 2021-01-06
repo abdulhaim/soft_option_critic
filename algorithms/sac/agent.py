@@ -4,7 +4,7 @@ import random
 
 from copy import deepcopy
 from algorithms.sac.model import SACModel
-from algorithms.sac.categorical_model import SACModel as SACModelCategorical
+from algorithms.sac.categorical_model import SACModelCategorical
 
 from torch.optim import Adam
 import torch.nn as nn
@@ -20,9 +20,8 @@ class SoftActorCritic(nn.Module):
         self.tb_writer = tb_writer
         self.log = log
 
-        # Q Function Definitions
         if args.env_type == 'categorical':
-            self.action_dim = 3
+            self.action_dim = action_space.n
             self.model = SACModelCategorical(observation_space, action_space, args.hidden_size)
         else:
             self.action_dim = action_space.shape[0]
@@ -53,25 +52,24 @@ class SoftActorCritic(nn.Module):
 
     def compute_loss_q(self, data):
         o, a, r, o2, d = data['state'], data['action'], data['reward'], data['next_state'], data['done']
-        a = to_onehot(a, self.action_dim)
+        q1 = self.model.q_function_1(o)
+        q2 = self.model.q_function_2(o)
 
-        q1 = self.model.q_function_1(o, a)
-        q2 = self.model.q_function_2(o, a)
-
+        # TODO: assert q1 is (args.batch_size, self.action_dim)
         # Bellman backup for Q functions
         with torch.no_grad():
             # Target actions come from *current* policy
             a2, logp_a2 = self.model.policy(o2)
-            a2 = to_onehot(a2, self.action_dim)
 
             # Target Q-values
-            q1_pi_targ = self.model_target.q_function_1(o2, a2)
-            q2_pi_targ = self.model_target.q_function_2(o2, a2)
+            q1_pi_targ = self.model_target.q_function_1(o2)
+            q2_pi_targ = self.model_target.q_function_2(o2)
             q_pi_targ = torch.min(q1_pi_targ, q2_pi_targ)
-            backup = r + self.args.gamma * (1 - d) * (q_pi_targ - self.args.alpha * logp_a2)
+            # TODO: Assert functions for dimensions to ensure
+            backup = r + self.args.gamma * (1 - d) * (a2 * (q_pi_targ - self.args.alpha * logp_a2)).sum(dim=-1)
         # MSE loss against Bellman backup
-        loss_q1 = ((q1 - backup) ** 2).mean()
-        loss_q2 = ((q2 - backup) ** 2).mean()
+        loss_q1 = ((torch.gather(q1, 1, a.long()) - backup) ** 2).mean()
+        loss_q2 = ((torch.gather(q2, 1, a.long()) - backup) ** 2).mean()
         loss_q = loss_q1 + loss_q2
 
         return loss_q
@@ -79,15 +77,12 @@ class SoftActorCritic(nn.Module):
     def compute_loss_pi(self, data):
         o = data['state']
         pi, logp_pi = self.model.policy(o)
-        pi = to_onehot(pi, self.action_dim)
 
-        q1_pi = self.model.q_function_1(o, pi)
-        q2_pi = self.model.q_function_2(o, pi)
+        q1_pi = self.model.q_function_1(o)
+        q2_pi = self.model.q_function_2(o)
         q_pi = torch.min(q1_pi, q2_pi)
-
         # Entropy-regularized policy loss
-        loss_pi = (self.args.alpha * logp_pi - q_pi).mean()
-
+        loss_pi = (pi * (self.args.alpha * logp_pi - q_pi)).sum(dim=-1).mean()
         return loss_pi
 
     def update_loss_sac(self, data):
@@ -171,7 +166,7 @@ class SoftActorCritic(nn.Module):
                 p_targ.data.mul_(self.args.polyak)
                 p_targ.data.add_((1 - self.args.polyak) * p.data)
 
-    def get_action(self, state):
+    def get_action(self, state, deterministic=False):
         with torch.no_grad():
-            action, logprob = self.model.act(torch.as_tensor(state, dtype=torch.float32), False)
+            action, logprob = self.model.act(torch.as_tensor(state, dtype=torch.float32), deterministic)
             return action, logprob

@@ -11,7 +11,7 @@ from misc.torch_utils import tensor
 from misc.tester import test_evaluation
 
 
-def train(args, agent, env, env_test, replay_buffer):
+def train(args, agent, env, env_test, old_env_test, replay_buffer):
     state, ep_reward, ep_len = env.reset(), 0, 0
     # Sample initial option for SOC
     if args.model_type == "SOC":
@@ -82,6 +82,9 @@ def train(args, agent, env, env_test, replay_buffer):
         if d or (ep_len == args.max_episode_len):
             agent.tb_writer.log_data("episodic_reward", total_step_count, ep_reward)
             agent.tb_writer.log_data("episodic_reward_time", time.time() - start_time, ep_reward)
+            test_evaluation(args, agent, env_test, step_count=total_step_count)
+            test_evaluation(args, agent, old_env_test, log_name="test_reward_old_task", step_count=total_step_count)
+
             state, ep_reward, ep_len = env.reset(), 0, 0
             if args.model_type == "SOC":
                 agent.current_option = agent.get_option(state, agent.get_epsilon())
@@ -95,18 +98,15 @@ def train(args, agent, env, env_test, replay_buffer):
                     agent.update_loss_soc(data=batch)
                 else:
                     agent.update_loss_sac(data=batch)
-            test_evaluation(args, agent, env_test)
 
         # MER
         if total_step_count >= args.update_after and args.mer:
             agent.update_sac_mer(replay_buffer)
-            test_evaluation(args, agent, env_test)
 
         # Changing Task
         if total_step_count > args.update_after and args.change_task and total_step_count % args.change_every == 0 and total_step_count != 0:
-            env, env_test = make_env(args.env_name, args, agent)
+            env, env_test, old_env_test = make_env(args.env_name, args, agent)
 
-        # Save model
         if total_step_count % args.save_model_every == 0:
             model_path = args.model_dir + args.model_type + "/" + args.env_name + '/'
             pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
@@ -125,14 +125,20 @@ def main(args):
     log = set_log(args)
     tb_writer = TensorBoardLogger(logdir=args.log_name, run_name=args.env_name + time.ctime())
 
-    env, env_test = make_env(args.env_name, args)
+    env, env_test, old_env_test = make_env(args.env_name, args)
     # Set seeds
     random.seed(args.random_seed)
     np.random.seed(args.random_seed)
     torch.manual_seed(args.random_seed)
+
     env.seed(args.random_seed)
     env_test.seed(args.random_seed)
+    old_env_test.seed(args.random_seed)
+
     env.action_space.seed(args.random_seed)
+    env_test.action_space.seed(args.random_seed)
+    old_env_test.action_space.seed(args.random_seed)
+
     torch.set_num_threads(3)
 
     # Set either SOC or SAC
@@ -164,7 +170,7 @@ def main(args):
 
         replay_buffer = ReplayBufferSAC(obs_dim=agent.obs_dim, act_dim=1, size=buffer_size)
 
-    train(args, agent, env, env_test, replay_buffer)
+    train(args, agent, env, env_test, old_env_test, replay_buffer)
 
 
 if __name__ == '__main__':
@@ -178,7 +184,7 @@ if __name__ == '__main__':
     parser.add_argument('--buffer-size', help='max size of the replay buffer', default=1000000)
     parser.add_argument('--hidden-size', help='number of units in the hidden layers', default=256)
     parser.add_argument('--batch-size', help='size of minibatch for minibatch-SGD', default=100)
-    parser.add_argument("--max-grad-clip", type=float, default=10.0, help="Max norm gradient clipping value")
+    parser.add_argument("--max-grad-clip", type=float, default=5.0, help="Max norm gradient clipping value")
 
     # Option Specific Parameters
     parser.add_argument('--eps-start', type=float, default=1.0, help=('Starting value for epsilon.'))
@@ -196,14 +202,14 @@ if __name__ == '__main__':
 
     # Environment Parameters
     parser.add_argument('--env_name', help='name of env', type=str,
-                        default="Acrobot-v1")
-    parser.add_argument('--random-seed', help='random seed for repeatability', default=1)
-    parser.add_argument('--max-episode-len', help='max length of 1 episode', default=500)
+                        default="CartPole-v1")
+    parser.add_argument('--random-seed', help='random seed for repeatability', default=7)
+    parser.add_argument('--max-episode-len', help='max length of 1 episode', default=200)
     parser.add_argument('--env-type', help='type of env', type=str, default="categorical")
     # Plotting Parameters
     parser.add_argument('--log_name', help='Log directory', type=str, default="logs")
     parser.add_argument('--save-model-every', help='Save model every certain number of steps', type=int, default=50000)
-    parser.add_argument('--exp-name', help='Experiment Name', type=str, default="sac_acrobot_1")
+    parser.add_argument('--exp-name', help='Experiment Name', type=str, default="sac_1")
     parser.add_argument('--model_dir', help='Model directory', type=str, default="model/")
     parser.add_argument('--model_type', help='Model Type', type=str, default="SAC")
 
@@ -219,7 +225,7 @@ if __name__ == '__main__':
 
     # Non-stationarity
     parser.add_argument('--change-task', type=bool, default=False, help='whether to add non-stationarity')
-    parser.add_argument('--change-every', type=int, default=5000, help='numb of ep to change task')
+    parser.add_argument('--change-every', type=int, default=50000, help='numb of ep to change task')
 
     args = parser.parse_args()
     main(args)
