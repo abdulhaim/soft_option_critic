@@ -10,10 +10,11 @@ def make_env(env_name):
     elif env_name == "Pendulum-v0":
         env = PendulumEnv()
 
-    elif env_name == "Acrobot-v1" or env_name == "MountainCar-v0":
-        env = gym.make(env_name)
-
     elif env_name == "CartPole-v1":
         env = CartPoleEnv()
+
+    else:
+        env = gym.make(env_name)
+        env.max_episode_steps = 1000
 
     return env

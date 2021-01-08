@@ -1,9 +1,9 @@
 import os
 import time
 import torch
+import random
 import numpy as np
 from logger import TensorBoardLogger
-import random
 from misc.utils import set_log, load_config
 from misc.arguments import args
 from trainer import train

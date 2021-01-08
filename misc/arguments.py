@@ -26,7 +26,7 @@ parser.add_argument('--update-after', help='steps before updating', type=int, de
 parser.add_argument('--update-every', help='update model after certain number steps', type=int, default=50)
 
 # Environment Parameters
-parser.add_argument('--env_name', help='name of env', type=str, default="CartPole-v1")
+parser.add_argument('--env_name', help='name of env', type=str, default="Pendulum-v0")
 parser.add_argument('--seed', help='random seed for repeatability', default=7)
 
 # Plotting Parameters
@@ -48,6 +48,6 @@ parser.add_argument('--mer-update-target-every', type=int, default=50, help='Rep
 
 # Non-stationarity
 parser.add_argument('--change-task', type=bool, default=True, help='whether to add non-stationarity')
-parser.add_argument('--change-every', type=int, default=5000, help='numb of ep to change task')
+parser.add_argument('--change-every', type=int, default=25000, help='numb of ep to change task')
 
 args = parser.parse_args()

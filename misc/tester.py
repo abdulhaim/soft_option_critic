@@ -11,7 +11,6 @@ def test_evaluation(args, agent, env, num_test_episodes=10, log_name="test_rewar
                 action, _ = agent.get_action(agent.current_option, state)
             else:
                 action, _ = agent.get_action(state, deterministic=True)
-                action = action[0]
 
             # Take deterministic actions at test time
             state, reward, done, _ = env.step(action)

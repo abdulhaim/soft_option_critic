@@ -5,6 +5,7 @@ from torch.distributions.normal import Normal
 from torch import nn as nn
 import numpy as np
 import torch.nn.functional as F
+
 LOG_STD_MAX = 2
 LOG_STD_MIN = -20
 

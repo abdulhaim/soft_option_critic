@@ -1,7 +1,7 @@
 import pathlib
 import torch
 import numpy as np
-
+import gym
 from misc.torch_utils import tensor
 from misc.tester import test_evaluation
 
@@ -22,7 +22,7 @@ def train(args, agent, env, replay_buffer):
                 action, _ = agent.get_action(agent.current_option, state)
             else:
                 action, _ = agent.get_action(state)
-                action = action[0]
+
         else:
             if args.model_type == "SOC":
                 agent.current_option = agent.get_option(tensor(state), agent.get_epsilon())
@@ -32,7 +32,7 @@ def train(args, agent, env, replay_buffer):
         ep_reward += reward
         ep_len += 1
 
-        d = True if ep_len == env.max_episode_steps else done
+        d = False if ep_len == env.max_episode_steps else done
 
         # Store experience to replay buffer
         if args.model_type == "SOC":
@@ -50,12 +50,17 @@ def train(args, agent, env, replay_buffer):
             else:
                 replay_buffer.store(state, action, reward, next_state, d)
 
-            agent.current_sample = dict(
-                state=np.array([state]),
-                action=np.expand_dims(np.array([action]), axis=-1),
-                reward=np.array([reward]),
-                next_state=np.array([next_state]),
-                done=np.array(d))
+        if isinstance(agent.action_space, gym.spaces.Discrete):
+            action = np.expand_dims(np.array([action]), axis=-1)
+        else:
+            action = np.array([action])
+
+        agent.current_sample = dict(
+            state=np.array([state]),
+            action=action,
+            reward=np.array([reward]),
+            next_state=np.array([next_state]),
+            done=np.array(d))
 
         if args.model_type == "SOC":
             beta_prob, beta = agent.predict_option_termination(tensor(next_state), agent.current_option)
@@ -68,13 +73,18 @@ def train(args, agent, env, replay_buffer):
 
         # End of trajectory handling
         if d or (ep_len == env.max_episode_steps):
+            # Logging Training Returns
             agent.log[args.log_name].info("Returns: {:.3f} at iteration {}".format(
                 ep_reward, total_step_count))
             agent.tb_writer.log_data("episodic_reward", total_step_count, ep_reward)
 
+            # Logging Testing Returns
             test_evaluation(args, agent, env, step_count=total_step_count)
-            test_evaluation(args, agent, env, log_name="test_reward_old_task", step_count=total_step_count)
-            env.reset_task(task=0)
+
+            # Logging non-stationarity returns
+            if args.change_task:
+                test_evaluation(args, agent, env, log_name="test_reward_old_task", step_count=total_step_count)
+                env.reset_task(task=0)
 
             state, ep_reward, ep_len = env.reset(), 0, 0
             if args.model_type == "SOC":

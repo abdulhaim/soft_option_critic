@@ -31,3 +31,4 @@ export CUDA_VISIBLE_DEVICES=-1
 cd $DIR
 python3.6 main.py \
 --model_type "SAC"
+--config mer.yaml

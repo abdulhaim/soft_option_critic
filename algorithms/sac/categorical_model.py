@@ -73,4 +73,4 @@ class SACModelCategorical(nn.Module):
     def act(self, obs, deterministic=False):
         with torch.no_grad():
             a, logprob = self.policy(obs, deterministic, False)
-            return a.numpy(), logprob
+            return a.numpy()[0], logprob

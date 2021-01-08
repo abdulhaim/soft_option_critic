@@ -13,7 +13,7 @@ from torch.optim import Adam
 class SoftActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, args, tb_writer, log):
         super(SoftActorCritic, self).__init__()
-
+        self.action_space = action_space
         self.obs_dim = observation_space.shape[0]
         self.args = args
         self.tb_writer = tb_writer
@@ -51,28 +51,49 @@ class SoftActorCritic(nn.Module):
 
     def compute_loss_q(self, data):
         o, a, r, o2, d = data['state'], data['action'], data['reward'], data['next_state'], data['done']
-        q1 = self.model.q_function_1(o)
-        q2 = self.model.q_function_2(o)
+        if isinstance(self.action_space, gym.spaces.Discrete):
+            q1 = self.model.q_function_1(o)
+            q2 = self.model.q_function_2(o)
+        else:
+            q1 = self.model.q_function_1(o, a)
+            q2 = self.model.q_function_2(o, a)
 
-        assert q1.shape == (self.args.batch_size, self.action_dim)
+        if isinstance(self.action_space, gym.spaces.Discrete) and not self.args.mer: # TODO: add function to check dimensions for different cases
+            assert q1.shape == (self.args.batch_size, self.action_dim)
+
         # Bellman backup for Q functions
         with torch.no_grad():
             # Target actions come from *current* policy
             a2, logp_a2 = self.model.policy(o2, with_logprob=True)
 
             # Target Q-values
-            q1_pi_targ = self.model_target.q_function_1(o2)
-            q2_pi_targ = self.model_target.q_function_2(o2)
+            if isinstance(self.action_space, gym.spaces.Discrete):
+                q1_pi_targ = self.model_target.q_function_1(o2)
+                q2_pi_targ = self.model_target.q_function_2(o2)
+            else:
+                q1_pi_targ = self.model_target.q_function_1(o2, a2)
+                q2_pi_targ = self.model_target.q_function_2(o2, a2)
+
             q_pi_targ = torch.min(q1_pi_targ, q2_pi_targ)
 
-            backup = r + self.args.gamma * (1 - d) * (a2 * (q_pi_targ - self.args.alpha * logp_a2)).sum(dim=-1)
-            backup = torch.unsqueeze(backup, -1)
+            if isinstance(self.action_space, gym.spaces.Discrete):
+                backup = r + self.args.gamma * (1 - d) * (a2 * (q_pi_targ - self.args.alpha * logp_a2)).sum(dim=-1)
+                backup = torch.unsqueeze(backup, -1)
+
+            else:
+                backup = r + self.args.gamma * (1 - d) * (q_pi_targ - self.args.alpha * logp_a2)
 
         # MSE loss against Bellman backup
-        assert backup.shape == (self.args.batch_size, 1)
+        if isinstance(self.action_space, gym.spaces.Discrete) and not self.args.mer: # TODO: add function to check dimensions for different cases
+            assert backup.shape == (self.args.batch_size, 1)
 
-        loss_q1 = F.mse_loss(torch.gather(q1, 1, a.long()), backup)
-        loss_q2 = F.mse_loss(torch.gather(q2, 1, a.long()), backup)
+        if isinstance(self.action_space, gym.spaces.Discrete):
+            loss_q1 = F.mse_loss(torch.gather(q1, 1, a.long()), backup)
+            loss_q2 = F.mse_loss(torch.gather(q2, 1, a.long()), backup)
+        else:
+            loss_q1 = F.mse_loss(q1, backup)
+            loss_q2 = F.mse_loss(q2, backup)
+
         loss_q = loss_q1 + loss_q2
 
         return loss_q
@@ -81,12 +102,20 @@ class SoftActorCritic(nn.Module):
         o = data['state']
         pi, logp_pi = self.model.policy(o, with_logprob=True)
 
-        q1_pi = self.model.q_function_1(o).detach()
-        q2_pi = self.model.q_function_2(o).detach()
+        if isinstance(self.action_space, gym.spaces.Discrete):
+            q1_pi = self.model.q_function_1(o).detach()
+            q2_pi = self.model.q_function_2(o).detach()
+        else:
+            q1_pi = self.model.q_function_1(o, pi).detach()
+            q2_pi = self.model.q_function_2(o, pi).detach()
         q_pi = torch.min(q1_pi, q2_pi)
 
         # Entropy-regularized policy loss
-        loss_pi = (pi * (self.args.alpha * logp_pi - q_pi)).sum(dim=1).mean()
+        if isinstance(self.action_space, gym.spaces.Discrete):
+            loss_pi = (pi * (self.args.alpha * logp_pi - q_pi)).sum(dim=1).mean()
+        else:
+            loss_pi = (self.args.alpha * logp_pi - q_pi).mean()
+
         return loss_pi
 
     def update_loss_sac(self, data):
