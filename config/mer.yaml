@@ -1,0 +1,20 @@
+#################################################################################
+# MER ALGORITHM
+#################################################################################
+# Whether or not to enable MER
+mer: False
+
+# Learning rate for MER
+mer_lr: 1e-4
+
+# Gamma Learning rate parameter
+mer_gamma: 0.03
+
+# Batch size for experience replay. Denoted as k-1 in the paper.
+mer_replay_batch_size: 16
+
+# Replay buffer size
+mer_replay_buffer_size: 5000
+
+# Markov chain terminates when chain horizon is reached
+mer_update_target_every: 50

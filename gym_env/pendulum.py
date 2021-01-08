@@ -18,6 +18,8 @@ class PendulumEnv(gym.Env):
         self.g = g
         self.m = 1.
         self.l = 1.
+        self.tasks = [2.0, 4.0, 6.0, 2.0, 10.0]
+        self.max_episode_steps = 200
         self.viewer = None
 
         high = np.array([1., 1., self.max_speed], dtype=np.float32)
@@ -63,6 +65,9 @@ class PendulumEnv(gym.Env):
         self.last_u = None
         return self._get_obs()
 
+    def reset_task(self, task):
+        self.g = self.tasks[task]
+
     def _get_obs(self):
         theta, thetadot = self.state
         return np.array([np.cos(theta), np.sin(theta), thetadot])
@@ -99,4 +104,4 @@ class PendulumEnv(gym.Env):
 
 
 def angle_normalize(x):
-    return (((x+np.pi) % (2*np.pi)) - np.pi)
+    return (((x + np.pi) % (2 * np.pi)) - np.pi)

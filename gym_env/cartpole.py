@@ -72,6 +72,8 @@ class CartPoleEnv(gym.Env):
         self.polemass_length = (self.masspole * self.length)
         self.force_mag = 10.0
         self.tau = 0.02  # seconds between state updates
+        self.tasks = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]
+        self.max_episode_steps = 500
         self.kinematics_integrator = 'euler'
 
         # Angle at which to fail the episode
@@ -157,6 +159,9 @@ class CartPoleEnv(gym.Env):
         self.state = self.np_random.uniform(low=-0.05, high=0.05, size=(4,))
         self.steps_beyond_done = None
         return np.array(self.state)
+
+    def reset_task(self, task):
+        self.length = self.tasks[task]
 
     def render(self, mode='human'):
         screen_width = 600

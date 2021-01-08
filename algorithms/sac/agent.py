@@ -1,6 +1,7 @@
 import itertools
 import torch
 import random
+import gym
 import torch.nn as nn
 import torch.nn.functional as F
 from copy import deepcopy
@@ -18,12 +19,9 @@ class SoftActorCritic(nn.Module):
         self.tb_writer = tb_writer
         self.log = log
 
-        # TODO You can select env_type based on action_space in gym environment
-        # so that you can remove the env_type in the argument
-        if args.env_type == 'categorical':
+        if isinstance(action_space, gym.spaces.Discrete):
             self.action_dim = action_space.n
             self.model = SACModelCategorical(observation_space, action_space, args.hidden_size)
-            # TODO I would log self.model
         else:
             self.action_dim = action_space.shape[0]
             self.model = SACModel(observation_space, action_space, args.hidden_size)
@@ -56,7 +54,7 @@ class SoftActorCritic(nn.Module):
         q1 = self.model.q_function_1(o)
         q2 = self.model.q_function_2(o)
 
-        # TODO: assert q1 is (args.batch_size, self.action_dim)
+        assert q1.shape == (self.args.batch_size, self.action_dim)
         # Bellman backup for Q functions
         with torch.no_grad():
             # Target actions come from *current* policy
@@ -66,13 +64,13 @@ class SoftActorCritic(nn.Module):
             q1_pi_targ = self.model_target.q_function_1(o2)
             q2_pi_targ = self.model_target.q_function_2(o2)
             q_pi_targ = torch.min(q1_pi_targ, q2_pi_targ)
-            # TODO: Assert functions for dimensions to ensure
+
             backup = r + self.args.gamma * (1 - d) * (a2 * (q_pi_targ - self.args.alpha * logp_a2)).sum(dim=-1)
             backup = torch.unsqueeze(backup, -1)
 
         # MSE loss against Bellman backup
-        # torch.gather(q1, 1, a.long()) shape: (100, 1)
-        # backup: (100) -> (100, 1)
+        assert backup.shape == (self.args.batch_size, 1)
+
         loss_q1 = F.mse_loss(torch.gather(q1, 1, a.long()), backup)
         loss_q2 = F.mse_loss(torch.gather(q2, 1, a.long()), backup)
         loss_q = loss_q1 + loss_q2
@@ -84,11 +82,11 @@ class SoftActorCritic(nn.Module):
         pi, logp_pi = self.model.policy(o, with_logprob=True)
 
         q1_pi = self.model.q_function_1(o).detach()
-        # q2_pi = self.model.q_function_2(o).detach()
-        # q_pi = torch.min(q1_pi, q2_pi)
+        q2_pi = self.model.q_function_2(o).detach()
+        q_pi = torch.min(q1_pi, q2_pi)
 
         # Entropy-regularized policy loss
-        loss_pi = (pi * (self.args.alpha * logp_pi - q1_pi)).sum(dim=-1).mean()
+        loss_pi = (pi * (self.args.alpha * logp_pi - q_pi)).sum(dim=1).mean()
         return loss_pi
 
     def update_loss_sac(self, data):
@@ -102,8 +100,8 @@ class SoftActorCritic(nn.Module):
 
         # # Freeze Q-networks so you don't waste computational effort
         # # computing gradients for them during the policy learning step.
-        # for p in self.q_params:
-        #     p.requires_grad = False
+        for p in self.q_params:
+            p.requires_grad = False
 
         # Next run one gradient descent step for pi
         self.pi_optimizer.zero_grad()
@@ -114,8 +112,8 @@ class SoftActorCritic(nn.Module):
         self.tb_writer.log_data("policy_loss", self.iteration, loss_pi.item())
 
         # # Unfreeze Q-networks so you can optimize it at next DDPG step.
-        # for p in self.q_params:
-        #     p.requires_grad = True
+        for p in self.q_params:
+            p.requires_grad = True
 
         self.update_target_networks()
 
