@@ -2,7 +2,7 @@ from gym_env.pendulum import PendulumEnv
 from gym_env.cartpole import CartPoleEnv
 import gym
 
-def make_env(env_name):
+def make_env(env_name, task_name=None):
     if env_name == "BugCrippled":
         from gym_env.bug_crippled import BugCrippledEnv
         env = BugCrippledEnv()
@@ -13,8 +13,17 @@ def make_env(env_name):
     elif env_name == "CartPole-v1":
         env = CartPoleEnv()
 
+    elif env_name == "MetaWorld":
+        import metaworld
+        import random
+        if task_name:
+            mt1 = metaworld.MT1(task_name)  # Construct the benchmark, sampling tasks
+            env = mt1.train_classes[task_name]()
+            task = random.choice(mt1.train_tasks)
+            env.set_task(task)  # Set task
+            env.max_episode_steps = env.max_path_length
     else:
         env = gym.make(env_name)
         env.max_episode_steps = 1000
-
     return env
+

@@ -26,7 +26,10 @@ class SoftActorCritic(nn.Module):
             self.action_dim = action_space.shape[0]
             self.model = SACModel(observation_space, action_space, args.hidden_size)
 
+        # self.model = self.model.to(self.device)
+
         self.model_target = deepcopy(self.model)
+        # self.model_target = self.model_target.to(self.device)
 
         # Freeze target networks with respect to optimizers (only update via polyak averaging)
         for p in self.model_target.parameters():
@@ -95,6 +98,7 @@ class SoftActorCritic(nn.Module):
             loss_q2 = F.mse_loss(q2, backup)
 
         loss_q = loss_q1 + loss_q2
+        self.tb_writer.log_data("entropy_loss", self.iteration, (self.args.alpha * logp_a2).sum(dim=-1).item())
 
         return loss_q
 
@@ -106,8 +110,8 @@ class SoftActorCritic(nn.Module):
             q1_pi = self.model.q_function_1(o).detach()
             q2_pi = self.model.q_function_2(o).detach()
         else:
-            q1_pi = self.model.q_function_1(o, pi).detach()
-            q2_pi = self.model.q_function_2(o, pi).detach()
+            q1_pi = self.model.q_function_1(o, pi)
+            q2_pi = self.model.q_function_2(o, pi)
         q_pi = torch.min(q1_pi, q2_pi)
 
         # Entropy-regularized policy loss
@@ -178,7 +182,7 @@ class SoftActorCritic(nn.Module):
             # within batch reptile meta-update
         weights_after_batch = deepcopy(self.model.state_dict())
         self.model.load_state_dict({name: weights_before_batch[name] + (
-                (weights_after_batch[name] - weights_before_batch[name]) * self.args.gamma) for
+                (weights_after_batch[name] - weights_before_batch[name]) * self.args.mer_gamma) for
                                     name in weights_before_batch})
 
         self.update_target_networks()
@@ -203,3 +207,7 @@ class SoftActorCritic(nn.Module):
         with torch.no_grad():
             action, logprob = self.model.act(torch.as_tensor(state, dtype=torch.float32), deterministic)
             return action, logprob
+
+    def load_model(self, model_dir):
+        self.model.load_state_dict(torch.load(model_dir))
+

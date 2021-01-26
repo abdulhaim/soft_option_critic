@@ -1,12 +1,13 @@
 import pathlib
 import torch
 import numpy as np
-import gym
 from misc.torch_utils import tensor
 from misc.tester import test_evaluation
 
+meta_world_alternate = ["window-close-v2", "window-open-v2"]
 
-def train(args, agent, env, replay_buffer):
+
+def train(args, agent, env, test_env, replay_buffer):
     state, ep_reward, ep_len = env.reset(), 0, 0
 
     # Sample initial option for SOC
@@ -29,11 +30,10 @@ def train(args, agent, env, replay_buffer):
             action = env.action_space.sample()  # Uniform random sampling from action space for exploration
 
         next_state, reward, done, _ = env.step(action)
+
         ep_reward += reward
         ep_len += 1
-
         d = False if ep_len == env.max_episode_steps else done
-
         # Store experience to replay buffer
         if args.model_type == "SOC":
             replay_buffer.store(state, agent.current_option, action, reward, next_state, d)
@@ -50,6 +50,7 @@ def train(args, agent, env, replay_buffer):
             else:
                 replay_buffer.store(state, action, reward, next_state, d)
 
+        import gym
         if isinstance(agent.action_space, gym.spaces.Discrete):
             action = np.expand_dims(np.array([action]), axis=-1)
         else:
@@ -80,11 +81,11 @@ def train(args, agent, env, replay_buffer):
 
             # Logging Testing Returns
             test_evaluation(args, agent, env, step_count=total_step_count)
+            test_evaluation(args, agent, test_env, log_name="alternate_agent", step_count=total_step_count)
 
             # Logging non-stationarity returns
             if args.change_task:
-                test_evaluation(args, agent, env, log_name="test_reward_old_task", step_count=total_step_count)
-                env.reset_task(task=0)
+                test_evaluation(args, agent, test_env, log_name="old_task", step_count=total_step_count)
 
             state, ep_reward, ep_len = env.reset(), 0, 0
             if args.model_type == "SOC":
@@ -107,7 +108,10 @@ def train(args, agent, env, replay_buffer):
         # Changing Task
         if total_step_count > args.update_after and args.change_task and total_step_count % args.change_every == 0 and total_step_count != 0:
             agent.nonstationarity_index += 1
-            env.reset_task(task=agent.nonstationarity_index)
+            from gym_env import make_env
+            #env = make_env(args.env_name, args.test_task_name)
+            env = make_env(args.env_name, meta_world_alternate[agent.nonstationarity_index % 2])
+            print(env.reset())
 
         if total_step_count % args.save_model_every == 0:
             model_path = args.model_dir + args.model_type + "/" + args.env_name + '/'

@@ -1,0 +1,25 @@
+#################################################################################
+# MetaWorld Parameters
+#################################################################################
+
+env_name: MetaWorld
+lr: 0.003
+batch_size: 128
+exp_name: SOC_MetaWorld
+model_type: S0C
+task_name: "window-close-v2"
+test_task_name: "window-open-v2"
+seed: 1
+alpha: 0.005
+change_task: False
+change_every: 10000
+buffer_size: 10.0
+update_after: 200
+
+
+mer: False
+mer_lr: 0.001
+mer_gamma: 0.00001
+mer_replay_batch_size: 16
+mer_replay_buffer_size: 5000
+mer_update_target_every: 50

@@ -1,5 +1,6 @@
 import random
 import torch
+import gym
 
 import itertools
 import numpy as np
@@ -24,8 +25,8 @@ class SoftOptionCritic(nn.Module):
         self.args = args
         self.tb_writer = tb_writer
         self.log = log
-
-        if args.env_type == 'categorical':
+        self.nonstationarity_index = 0
+        if isinstance(action_space, gym.spaces.Discrete):
             self.action_dim = action_space.n
             self.model = SOCModelCategorical(self.obs_dim, self.action_dim, args.hidden_size, self.option_num)
         else:
@@ -136,8 +137,21 @@ class SoftOptionCritic(nn.Module):
 
         beta_prob, _ = self.predict_option_termination(tensor(next_state), option_indices, gradient=True)
         current_actions, logp = self.model.intra_option_policy(torch.as_tensor(state, dtype=torch.float32), gradient=True)
-        current_actions = torch.gather(current_actions.squeeze(-1).T, 1, option_indices)
+
+        print(current_actions.shape)
+        print(option_indices.shape)
+        print(logp.shape)
+        current actions --> [options, batch size, actions]
+        option indices --> [batch_size, 1, 1]
+        current_actions = torch.gather(current_actions.T, 1, option_indices).squeeze(-1)
         logp = torch.gather(logp.T, 1, option_indices).squeeze(-1)
+
+        current_actions = current_actions.reshape(self.args.batch_size, self.option_num, self.action_dim)
+        current_actions = current_actions.gather(1, option_indices.view(-1, 1, 1).expand(current_actions.size(0), 1, current_actions.size(2))).reshape(self.args.batch_size, self.action_dim)
+        logp = torch.gather(logp.T, 1, option_indices).squeeze(-1)
+
+        # current_actions = torch.gather(current_actions.T, 1, option_indices).squeeze(-1)
+        # logp = torch.gather(logp.T, 1, option_indices).squeeze(-1)
 
         with torch.no_grad():
             q1_inter_targ = self.model_target.inter_q_function_1(next_state)

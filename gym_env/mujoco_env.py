@@ -37,10 +37,7 @@ class MujocoEnv(gym.Env):
     """
 
     def __init__(self, model_path, frame_skip):
-        if model_path.startswith("/"):
-            fullpath = model_path
-        else:
-            fullpath = os.path.join(os.path.dirname(__file__), "assets", model_path)
+        fullpath = model_path
         if not path.exists(fullpath):
             raise IOError("File %s does not exist" % fullpath)
         self.frame_skip = frame_skip
@@ -62,7 +59,7 @@ class MujocoEnv(gym.Env):
 
         action = self.action_space.sample()
         observation, _reward, done, _info = self.step(action)
-        assert not done
+        # assert not done
 
         self._set_observation_space(observation)
 

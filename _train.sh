@@ -28,7 +28,5 @@ export PYTHONPATH=$DIR/gym_env:$PYTHONPATH
 export CUDA_VISIBLE_DEVICES=-1
 
 # Begin experiment
-cd $DIR
-python3.6 main.py \
---model_type "SAC"
---config mer.yaml
+python3 main.py \
+--config metaworld.yaml

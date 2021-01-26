@@ -1,6 +1,13 @@
 numpy>=1.14.0
-torch==1.3.1
+torch
 tensorboardX==1.2
 gitpython==3.0.8
 matplotlib
 gym
+pyyaml
+mujoco-py<2.1,>=2.0
+pyrr
+path
+theano
+git+https://github.com/rlworkgroup/metaworld.git@new-reward-functions
+

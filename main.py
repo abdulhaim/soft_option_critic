@@ -16,10 +16,11 @@ def main(args):
         os.makedirs(args.model_dir)
 
     log = set_log(args)
-    tb_writer = TensorBoardLogger(logdir="./logs/", run_name=args.log_name+ time.ctime())
+    tb_writer = TensorBoardLogger(logdir="./logs/", run_name=args.log_name + time.ctime())
 
     from gym_env import make_env
-    env = make_env(args.env_name)
+    env = make_env(args.env_name, args.task_name)
+    test_env = make_env(args.env_name, args.test_task_name)
 
     # Set seeds
     random.seed(args.seed)
@@ -28,6 +29,9 @@ def main(args):
 
     env.seed(args.seed)
     env.action_space.seed(args.seed)
+
+    test_env.seed(args.seed)
+    test_env.action_space.seed(args.seed)
 
     torch.set_num_threads(3)
 
@@ -41,8 +45,9 @@ def main(args):
             args=args,
             tb_writer=tb_writer,
             log=log)
+        buffer_size = int(args.buffer_size*args.change_every)
         replay_buffer = ReplayBufferSOC(
-            obs_dim=agent.obs_dim, act_dim=agent.action_dim, option_num=args.option_num, size=args.buffer_size)
+            obs_dim=agent.obs_dim, act_dim=agent.action_dim, option_num=args.option_num, size=buffer_size)
     else:
         from algorithms.sac.agent import SoftActorCritic
         from algorithms.sac.replay_buffer import ReplayBufferSAC
@@ -52,10 +57,15 @@ def main(args):
             args=args,
             tb_writer=tb_writer,
             log=log)
-        buffer_size = args.mer_replay_buffer_size if args.mer else args.buffer_size
-        replay_buffer = ReplayBufferSAC(obs_dim=agent.obs_dim, act_dim=1, size=buffer_size)
+        buffer_size = args.mer_replay_buffer_size if args.mer else int(args.buffer_size*args.change_every)
+        replay_buffer = ReplayBufferSAC(obs_dim=agent.obs_dim, act_dim=agent.action_dim, size=buffer_size)
 
-    train(args, agent, env, replay_buffer)
+        if args.load_model:
+            args.model_name = "old_models/SAC_MetaWorld150000.pth"
+            agent.load_model(args.model_name)
+
+    # agent.device = device
+    train(args, agent, env, test_env, replay_buffer)
 
 
 if __name__ == '__main__':
@@ -65,7 +75,7 @@ if __name__ == '__main__':
 
     # Set log name
     args.log_name = "%s_env::%s_seed::%s_lr::%s_alpha::%s_max_grad_clip::" \
-                    "%s_change_task::%s_change_every::%s_mer" % (
+                    "%s_change_task::%s_change_every::%s_mer::%s_mer_gamma::%s_mer_lr::%s_mer_replay_buffer" % (
                         args.env_name, args.seed, args.lr, args.alpha, args.max_grad_clip,
-                        args.change_task, args.change_every, args.mer)
+                        args.change_task, args.change_every, args.mer, args.mer_gamma, args.mer_lr, args.mer_replay_buffer_size)
     main(args)

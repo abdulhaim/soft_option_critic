@@ -2,13 +2,13 @@
 # MER ALGORITHM
 #################################################################################
 # Whether or not to enable MER
-mer: False
+mer: True
 
-# Learning rate for MER
-mer_lr: 0.0001
+# Learning rate for MER - inner lr higher than outer lr
+mer_lr: 0.01
 
 # Gamma Learning rate parameter
-mer_gamma: 0.03
+mer_gamma: 0.01
 
 # Batch size for experience replay. Denoted as k-1 in the paper.
 mer_replay_batch_size: 16
@@ -23,6 +23,8 @@ mer_update_target_every: 50
 # NON-STATIONARITY
 #################################################################################
 change_task: False
-change_every: 10000
+change_every: 500
 
-env_name: Pendulum-v0
+env_name: CartPole-v1
+
+# "old_models/sac_up_slope_10_degrees_sac_15950000.pth"
