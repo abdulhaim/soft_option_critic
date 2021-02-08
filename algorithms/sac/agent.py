@@ -5,19 +5,14 @@ import gym
 import torch.nn as nn
 import torch.nn.functional as F
 from copy import deepcopy
-from algorithms.sac.cnn_model import SACModel
+from algorithms.sac.model import SACModel
 from algorithms.sac.cnn_categorical_model import SACModelCategorical
 import torch.autograd as autograd
-import numpy as np
 
 from torch.optim import Adam
 
 cuda_avail = torch.cuda.is_available()
 device = torch.device("cuda" if cuda_avail else "cpu")
-
-Variable = lambda *args, **kwargs: autograd.Variable(*args, **kwargs).cuda() if device else autograd.Variable(*args,
-                                                                                                              **kwargs)
-
 
 class SoftActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, args, tb_writer, log):
@@ -36,11 +31,8 @@ class SoftActorCritic(nn.Module):
             self.model = SACModel(observation_space, action_space, args.hidden_size)
             self.model.to(device)
 
-        # self.model = self.model.to(self.device)
-
         self.model_target = deepcopy(self.model)
         self.model_target.to(device)
-        # self.model_target = self.model_target.to(self.device)
 
         # Freeze target networks with respect to optimizers (only update via polyak averaging)
         for p in self.model_target.parameters():

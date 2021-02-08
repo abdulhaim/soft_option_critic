@@ -49,12 +49,6 @@ def train(args, agent, env, test_env, replay_buffer):
 
         agent.current_sample = (np.expand_dims(state, 0), np.array([action]), reward, np.expand_dims(next_state, 0), done)
 
-        import gym
-        if isinstance(agent.action_space, gym.spaces.Discrete):
-            action = np.expand_dims(np.array([action]), axis=-1)
-        else:
-            action = np.array([action])
-
         if args.model_type == "SOC":
             beta_prob, beta = agent.predict_option_termination(tensor(next_state), agent.current_option)
             # If term is True, then sample next option
@@ -72,7 +66,6 @@ def train(args, agent, env, test_env, replay_buffer):
 
             # Logging Testing Returns
             test_evaluation(args, agent, env, step_count=total_step_count)
-            # test_evaluation(args, agent, test_env, log_name="alternate_agent", step_count=total_step_count)
 
             # Logging non-stationarity returns
             if args.change_task:
@@ -96,18 +89,15 @@ def train(args, agent, env, test_env, replay_buffer):
             agent.update_sac_mer(replay_buffer)
 
         # Changing Task
-        print("Conditional", total_step_count > thresholds[agent.nonstationarity_index])
-
         if total_step_count > args.update_after and args.change_task and total_step_count > thresholds[agent.nonstationarity_index] and total_step_count != 0:
             agent.nonstationarity_index += 1
             env.speed_constant += 0.03
             #from gym_env import make_env
             #env = make_env(args.env_name, meta_world_alternate[agent.nonstationarity_index % 2])
-            reset = env.reset()
 
         if total_step_count % args.save_model_every == 0:
             model_path = args.model_dir + args.model_type + "/" + args.env_name + '/'
             pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
-            # torch.save(agent.model.state_dict(), model_path + args.exp_name + str(total_step_count) + ".pth", _use_new_zipfile_serialization=False)
+            torch.save(agent.model.state_dict(), model_path + args.exp_name + str(total_step_count) + ".pth", _use_new_zipfile_serialization=False)
 
         agent.iteration = total_step_count

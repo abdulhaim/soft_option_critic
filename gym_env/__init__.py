@@ -3,7 +3,22 @@ from gym_env.cartpole import CartPoleEnv
 import gym
 
 def make_env(env_name, task_name=None):
-    if env_name == "BugCrippled":
+    if env_name == "Catcher":
+        import catcher
+        from baselines.common.atari_wrappers import WarpFrame, FrameStack, ScaledFloatFrame
+        env = gym.make("CatcherEnv-v0")
+        env = WarpFrame(env)
+        env = FrameStack(env, 4)
+        env = ScaledFloatFrame(env)
+        env.speed_constant = 0.608
+
+        test_env = gym.make("CatcherEnv-v0")
+        test_env = WarpFrame(test_env)
+        test_env = FrameStack(test_env, 4)
+        test_env = ScaledFloatFrame(test_env)
+        test_env.speed_constant = 0.608
+
+    elif env_name == "BugCrippled":
         from gym_env.bug_crippled import BugCrippledEnv
         env = BugCrippledEnv()
 

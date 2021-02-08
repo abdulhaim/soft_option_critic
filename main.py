@@ -18,24 +18,9 @@ def main(args):
     log = set_log(args)
     tb_writer = TensorBoardLogger(logdir="./logs/", run_name=args.log_name + time.ctime())
 
-    # from gym_env import make_env
-    import catcher
-    import gym
-    from baselines.common.atari_wrappers import WarpFrame, FrameStack, ScaledFloatFrame
-    env = gym.make("CatcherEnv-v0")
-    env = WarpFrame(env)
-    env = FrameStack(env, 4)
-    env = ScaledFloatFrame(env)
-    env.speed_constant = 0.608
-
-    test_env = gym.make("CatcherEnv-v0")
-    test_env = WarpFrame(test_env)
-    test_env = FrameStack(test_env, 4)
-    test_env = ScaledFloatFrame(test_env)
-    test_env.speed_constant = 0.608
-
-    # env = make_env(args.env_name, args.task_name)
-    # test_env = make_env(args.env_name, args.test_task_name)
+    from gym_env import make_env
+    env = make_env(args.env_name, args.task_name)
+    test_env = make_env(args.env_name, args.test_task_name)
 
     # Set seeds
     random.seed(args.seed)
@@ -76,7 +61,6 @@ def main(args):
 
         replay_buffer = ReplayBufferSAC(capacity=buffer_size)
         if args.load_model:
-            args.model_name = "old_models/model/SAC/MetaWorld/SAC_MetaWorld_2_150000.pth"
             agent.load_model(args.model_name)
             from misc.tester import test_evaluation
             test_evaluation(args, agent, env, log_name="alternate_agent", step_count=1)

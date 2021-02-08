@@ -7,7 +7,7 @@ import torch.autograd as autograd
 
 
 class Policy(nn.Module):
-    def __init__(self, obs_dim, act_dim, hidden_size):
+    def __init__(self, obs_dim, act_dim):
         super().__init__()
         self.in_channels = 4
         self.input_shape = [4, 84, 84]
@@ -29,7 +29,6 @@ class Policy(nn.Module):
         return self.net(autograd.Variable(torch.zeros(1, *self.input_shape))).view(1, -1).size(1)
 
     def forward(self, obs, deterministic=False, with_logprob=True):
-        # print("shape",obs.shape)
         if with_logprob:
             obs = obs.permute(0, 3, 1, 2)
         else:
@@ -38,12 +37,8 @@ class Policy(nn.Module):
             obs = torch.unsqueeze(obs, 0)
         # assert len(obs.shape) == 4, "batch process!"
         net_out = self.net(obs)
-        # print("out", net_out.shape)
-        ##print(net_out.shape)
 
         net_out = net_out.reshape(net_out.shape[0], self.feature_size())
-        # print(net_out.shape)
-        # assert 1 == 2
         x = self.last_layer(net_out)
 
         if deterministic:
@@ -70,7 +65,7 @@ class QFunction(nn.Module):
         super(QFunction, self).__init__()
         self.in_channels = 4
         self.input_shape = [4, 84, 84]
-        # print(act_dim)
+
         self.features = nn.Sequential(
             nn.Conv2d(self.in_channels, 32, kernel_size=8, stride=4),
             nn.ReLU(),
@@ -88,14 +83,10 @@ class QFunction(nn.Module):
     def feature_size(self):
         return self.features(autograd.Variable(torch.zeros(1, *self.input_shape))).view(1, -1).size(1)
 
-    def forward(self, obs, current_sample=False):
-        # print(obs.shape)
+    def forward(self, obs):
         x = self.features(obs.permute(0, 3, 1, 2))
-        # print("features",x.shape)
         x = x.reshape(x.shape[0], self.feature_size())
-        # x = x.view(obs.size(0), -1)
         x = self.fc(x)
-        # print("output", x.shape)
         return x
 
 
