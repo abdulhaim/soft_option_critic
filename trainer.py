@@ -4,8 +4,9 @@ import numpy as np
 from misc.torch_utils import tensor
 from misc.tester import test_evaluation
 
-meta_world_alternate = ["window-close-v2", "window-open-v2"]
+meta_world_alternate = ["window-open-v2", "window-close-v2"]
 
+thresholds = [25000, 50000, 75000, 100000, 125000, 150000, 175000, 200000]
 
 def train(args, agent, env, test_env, replay_buffer):
     state, ep_reward, ep_len = env.reset(), 0, 0
@@ -30,6 +31,8 @@ def train(args, agent, env, test_env, replay_buffer):
             action = env.action_space.sample()  # Uniform random sampling from action space for exploration
 
         next_state, reward, done, _ = env.step(action)
+        if args.visualize:
+            env.render()
 
         ep_reward += reward
         ep_len += 1
@@ -37,31 +40,20 @@ def train(args, agent, env, test_env, replay_buffer):
         # Store experience to replay buffer
         if args.model_type == "SOC":
             replay_buffer.store(state, agent.current_option, action, reward, next_state, d)
-            agent.current_sample = dict(
-                state=state,
-                option=agent.current_option,
-                action=action,
-                reward=reward,
-                next_state=next_state,
-                done=d)
+            agent.current_sample = (state, action, reward, next_state, done)
         else:
             if args.mer:
                 replay_buffer.store_mer(state, action, reward, next_state, d)
             else:
                 replay_buffer.store(state, action, reward, next_state, d)
 
+        agent.current_sample = (np.expand_dims(state, 0), np.array([action]), reward, np.expand_dims(next_state, 0), done)
+
         import gym
         if isinstance(agent.action_space, gym.spaces.Discrete):
             action = np.expand_dims(np.array([action]), axis=-1)
         else:
             action = np.array([action])
-
-        agent.current_sample = dict(
-            state=np.array([state]),
-            action=action,
-            reward=np.array([reward]),
-            next_state=np.array([next_state]),
-            done=np.array(d))
 
         if args.model_type == "SOC":
             beta_prob, beta = agent.predict_option_termination(tensor(next_state), agent.current_option)
@@ -71,22 +63,20 @@ def train(args, agent, env, test_env, replay_buffer):
 
         # For next timestep
         state = next_state
-
         # End of trajectory handling
         if d or (ep_len == env.max_episode_steps):
             # Logging Training Returns
-            agent.log[args.log_name].info("Returns: {:.3f} at iteration {}".format(
+            agent.log[args.log_name].info("Train Returns: {:.3f} at iteration {}".format(
                 ep_reward, total_step_count))
             agent.tb_writer.log_data("episodic_reward", total_step_count, ep_reward)
 
             # Logging Testing Returns
             test_evaluation(args, agent, env, step_count=total_step_count)
-            test_evaluation(args, agent, test_env, log_name="alternate_agent", step_count=total_step_count)
+            # test_evaluation(args, agent, test_env, log_name="alternate_agent", step_count=total_step_count)
 
             # Logging non-stationarity returns
             if args.change_task:
                 test_evaluation(args, agent, test_env, log_name="old_task", step_count=total_step_count)
-
             state, ep_reward, ep_len = env.reset(), 0, 0
             if args.model_type == "SOC":
                 agent.current_option = agent.get_option(state, agent.get_epsilon())
@@ -106,16 +96,18 @@ def train(args, agent, env, test_env, replay_buffer):
             agent.update_sac_mer(replay_buffer)
 
         # Changing Task
-        if total_step_count > args.update_after and args.change_task and total_step_count % args.change_every == 0 and total_step_count != 0:
+        print("Conditional", total_step_count > thresholds[agent.nonstationarity_index])
+
+        if total_step_count > args.update_after and args.change_task and total_step_count > thresholds[agent.nonstationarity_index] and total_step_count != 0:
             agent.nonstationarity_index += 1
-            from gym_env import make_env
-            #env = make_env(args.env_name, args.test_task_name)
-            env = make_env(args.env_name, meta_world_alternate[agent.nonstationarity_index % 2])
-            print(env.reset())
+            env.speed_constant += 0.03
+            #from gym_env import make_env
+            #env = make_env(args.env_name, meta_world_alternate[agent.nonstationarity_index % 2])
+            reset = env.reset()
 
         if total_step_count % args.save_model_every == 0:
             model_path = args.model_dir + args.model_type + "/" + args.env_name + '/'
             pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
-            torch.save(agent.model.state_dict(), model_path + args.exp_name + str(total_step_count) + ".pth")
+            # torch.save(agent.model.state_dict(), model_path + args.exp_name + str(total_step_count) + ".pth", _use_new_zipfile_serialization=False)
 
         agent.iteration = total_step_count

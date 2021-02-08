@@ -5,16 +5,25 @@ import gym
 import torch.nn as nn
 import torch.nn.functional as F
 from copy import deepcopy
-from algorithms.sac.model import SACModel
-from algorithms.sac.categorical_model import SACModelCategorical
+from algorithms.sac.cnn_model import SACModel
+from algorithms.sac.cnn_categorical_model import SACModelCategorical
+import torch.autograd as autograd
+import numpy as np
+
 from torch.optim import Adam
+
+cuda_avail = torch.cuda.is_available()
+device = torch.device("cuda" if cuda_avail else "cpu")
+
+Variable = lambda *args, **kwargs: autograd.Variable(*args, **kwargs).cuda() if device else autograd.Variable(*args,
+                                                                                                              **kwargs)
 
 
 class SoftActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, args, tb_writer, log):
         super(SoftActorCritic, self).__init__()
         self.action_space = action_space
-        self.obs_dim = observation_space.shape[0]
+        self.obs_dim = observation_space
         self.args = args
         self.tb_writer = tb_writer
         self.log = log
@@ -25,10 +34,12 @@ class SoftActorCritic(nn.Module):
         else:
             self.action_dim = action_space.shape[0]
             self.model = SACModel(observation_space, action_space, args.hidden_size)
+            self.model.to(device)
 
         # self.model = self.model.to(self.device)
 
         self.model_target = deepcopy(self.model)
+        self.model_target.to(device)
         # self.model_target = self.model_target.to(self.device)
 
         # Freeze target networks with respect to optimizers (only update via polyak averaging)
@@ -50,10 +61,17 @@ class SoftActorCritic(nn.Module):
         self.nonstationarity_index = 0
 
     def get_current_sample(self):
-        return {k: torch.as_tensor(v, dtype=torch.float32) for k, v in self.current_sample.items()}
+        return self.current_sample
 
     def compute_loss_q(self, data):
-        o, a, r, o2, d = data['state'], data['action'], data['reward'], data['next_state'], data['done']
+        o, a, r, o2, d = data
+        o = torch.tensor(o, device=device)
+        o2 = torch.tensor(o2, device=device)
+        d = torch.tensor(d, device=device)
+        r = torch.tensor(r, device=device)
+        a = torch.tensor(a, device=device)
+
+        # o, a, r, o2, d = data['state'], data['action'], data['reward'], data['next_state'], data['done']
         if isinstance(self.action_space, gym.spaces.Discrete):
             q1 = self.model.q_function_1(o)
             q2 = self.model.q_function_2(o)
@@ -61,7 +79,8 @@ class SoftActorCritic(nn.Module):
             q1 = self.model.q_function_1(o, a)
             q2 = self.model.q_function_2(o, a)
 
-        if isinstance(self.action_space, gym.spaces.Discrete) and not self.args.mer: # TODO: add function to check dimensions for different cases
+        if isinstance(self.action_space,
+                      gym.spaces.Discrete) and not self.args.mer:  # TODO: add function to check dimensions for different cases
             assert q1.shape == (self.args.batch_size, self.action_dim)
 
         # Bellman backup for Q functions
@@ -80,30 +99,37 @@ class SoftActorCritic(nn.Module):
             q_pi_targ = torch.min(q1_pi_targ, q2_pi_targ)
 
             if isinstance(self.action_space, gym.spaces.Discrete):
-                backup = r + self.args.gamma * (1 - d) * (a2 * (q_pi_targ - self.args.alpha * logp_a2)).sum(dim=-1)
+                backup = r + self.args.gamma * torch.logical_not(d) * (
+                        a2 * (q_pi_targ - self.args.alpha * logp_a2)).sum(dim=-1)
                 backup = torch.unsqueeze(backup, -1)
 
             else:
                 backup = r + self.args.gamma * (1 - d) * (q_pi_targ - self.args.alpha * logp_a2)
 
         # MSE loss against Bellman backup
-        if isinstance(self.action_space, gym.spaces.Discrete) and not self.args.mer: # TODO: add function to check dimensions for different cases
+        if isinstance(self.action_space,
+                      gym.spaces.Discrete) and not self.args.mer:  # TODO: add function to check dimensions for different cases
             assert backup.shape == (self.args.batch_size, 1)
 
         if isinstance(self.action_space, gym.spaces.Discrete):
-            loss_q1 = F.mse_loss(torch.gather(q1, 1, a.long()), backup)
-            loss_q2 = F.mse_loss(torch.gather(q2, 1, a.long()), backup)
+            loss_q1 = F.mse_loss(torch.gather(q1, 1, a.unsqueeze(-1).long()), backup)
+            loss_q2 = F.mse_loss(torch.gather(q2, 1, a.unsqueeze(-1).long()), backup)
         else:
             loss_q1 = F.mse_loss(q1, backup)
             loss_q2 = F.mse_loss(q2, backup)
 
         loss_q = loss_q1 + loss_q2
-        self.tb_writer.log_data("entropy_loss", self.iteration, (self.args.alpha * logp_a2).sum(dim=-1).item())
+
+        logp_a2 = torch.unsqueeze(logp_a2, -1)
+
+        entropy_debug = (-a2.unsqueeze(-1) * logp_a2).sum(dim=-1).mean()
+        self.tb_writer.log_data("loss/entropy", self.iteration, entropy_debug)
 
         return loss_q
 
     def compute_loss_pi(self, data):
-        o = data['state']
+        o = data[0]
+        o = torch.tensor(o, device=device)
         pi, logp_pi = self.model.policy(o, with_logprob=True)
 
         if isinstance(self.action_space, gym.spaces.Discrete):
@@ -129,7 +155,7 @@ class SoftActorCritic(nn.Module):
         loss_q.backward()
         torch.nn.utils.clip_grad_norm_(self.q_params, self.args.max_grad_clip)
         self.q_optimizer.step()
-        self.tb_writer.log_data("q_function_loss", self.iteration, loss_q.item())
+        self.tb_writer.log_data("loss/q_function_loss", self.iteration, loss_q.item())
 
         # # Freeze Q-networks so you don't waste computational effort
         # # computing gradients for them during the policy learning step.
@@ -142,7 +168,7 @@ class SoftActorCritic(nn.Module):
         loss_pi.backward()
         torch.nn.utils.clip_grad_norm_(self.model.policy.parameters(), self.args.max_grad_clip)
         self.pi_optimizer.step()
-        self.tb_writer.log_data("policy_loss", self.iteration, loss_pi.item())
+        self.tb_writer.log_data("loss/policy_loss", self.iteration, loss_pi.item())
 
         # # Unfreeze Q-networks so you can optimize it at next DDPG step.
         for p in self.q_params:
@@ -151,33 +177,31 @@ class SoftActorCritic(nn.Module):
         self.update_target_networks()
 
     def update_sac_mer(self, replay_buffer):
-        # get current weights
-        # weights_before_steps = deepcopy(self.model.state_dict())
         random_index = random.randint(1, self.args.mer_replay_batch_size)
-        self.q_optimizer.zero_grad()
-        self.pi_optimizer.zero_grad()
-
-        # for step in range(self.args.mer_steps):
+        # get current weights
         weights_before_batch = deepcopy(self.model.state_dict())
-        for j_step in range(4):
+        for j_step in range(self.args.mer_replay_batch_size):
             if j_step == random_index:
                 data = self.get_current_sample()
             else:
-                data = replay_buffer.sample_batch(4)
+                data = replay_buffer.sample_batch(1)
 
             # First run one gradient descent step for Q1 and Q2
+
             loss_q = self.compute_loss_q(data)
+            self.q_optimizer.zero_grad()
             loss_q.backward()
             torch.nn.utils.clip_grad_norm_(self.q_params, self.args.max_grad_clip)
             self.q_optimizer.step()
-            self.tb_writer.log_data("q_function_loss", self.iteration, loss_q.item())
+            self.tb_writer.log_data("loss/q_function_loss", self.iteration, loss_q.item())
 
             # Next run one gradient descent step for pi
             loss_pi = self.compute_loss_pi(data)
+            self.pi_optimizer.zero_grad()
             loss_pi.backward()
             torch.nn.utils.clip_grad_norm_(self.model.policy.parameters(), self.args.max_grad_clip)
             self.pi_optimizer.step()
-            self.tb_writer.log_data("policy_loss", self.iteration, loss_pi.item())
+            self.tb_writer.log_data("loss/policy_loss", self.iteration, loss_pi.item())
 
             # within batch reptile meta-update
         weights_after_batch = deepcopy(self.model.state_dict())
@@ -205,9 +229,10 @@ class SoftActorCritic(nn.Module):
 
     def get_action(self, state, deterministic=False):
         with torch.no_grad():
-            action, logprob = self.model.act(torch.as_tensor(state, dtype=torch.float32), deterministic)
+            state = torch.tensor(state, device=device)
+            action, logprob = self.model.act(state, deterministic)
             return action, logprob
 
     def load_model(self, model_dir):
-        self.model.load_state_dict(torch.load(model_dir))
-
+        device = torch.device('cpu')
+        self.model.load_state_dict(torch.load(model_dir, map_location=device))

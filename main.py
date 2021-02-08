@@ -18,9 +18,24 @@ def main(args):
     log = set_log(args)
     tb_writer = TensorBoardLogger(logdir="./logs/", run_name=args.log_name + time.ctime())
 
-    from gym_env import make_env
-    env = make_env(args.env_name, args.task_name)
-    test_env = make_env(args.env_name, args.test_task_name)
+    # from gym_env import make_env
+    import catcher
+    import gym
+    from baselines.common.atari_wrappers import WarpFrame, FrameStack, ScaledFloatFrame
+    env = gym.make("CatcherEnv-v0")
+    env = WarpFrame(env)
+    env = FrameStack(env, 4)
+    env = ScaledFloatFrame(env)
+    env.speed_constant = 0.608
+
+    test_env = gym.make("CatcherEnv-v0")
+    test_env = WarpFrame(test_env)
+    test_env = FrameStack(test_env, 4)
+    test_env = ScaledFloatFrame(test_env)
+    test_env.speed_constant = 0.608
+
+    # env = make_env(args.env_name, args.task_name)
+    # test_env = make_env(args.env_name, args.test_task_name)
 
     # Set seeds
     random.seed(args.seed)
@@ -50,7 +65,7 @@ def main(args):
             obs_dim=agent.obs_dim, act_dim=agent.action_dim, option_num=args.option_num, size=buffer_size)
     else:
         from algorithms.sac.agent import SoftActorCritic
-        from algorithms.sac.replay_buffer import ReplayBufferSAC
+        from algorithms.sac.replay_buffer_cnn import ReplayBufferSAC
         agent = SoftActorCritic(
             observation_space=env.observation_space,
             action_space=env.action_space,
@@ -58,15 +73,16 @@ def main(args):
             tb_writer=tb_writer,
             log=log)
         buffer_size = args.mer_replay_buffer_size if args.mer else int(args.buffer_size*args.change_every)
-        replay_buffer = ReplayBufferSAC(obs_dim=agent.obs_dim, act_dim=agent.action_dim, size=buffer_size)
 
+        replay_buffer = ReplayBufferSAC(capacity=buffer_size)
         if args.load_model:
-            args.model_name = "old_models/SAC_MetaWorld150000.pth"
+            args.model_name = "old_models/model/SAC/MetaWorld/SAC_MetaWorld_2_150000.pth"
             agent.load_model(args.model_name)
+            from misc.tester import test_evaluation
+            test_evaluation(args, agent, env, log_name="alternate_agent", step_count=1)
 
     # agent.device = device
     train(args, agent, env, test_env, replay_buffer)
-
 
 if __name__ == '__main__':
     # Load experiment specific config if provided
@@ -75,7 +91,7 @@ if __name__ == '__main__':
 
     # Set log name
     args.log_name = "%s_env::%s_seed::%s_lr::%s_alpha::%s_max_grad_clip::" \
-                    "%s_change_task::%s_change_every::%s_mer::%s_mer_gamma::%s_mer_lr::%s_mer_replay_buffer" % (
-                        args.env_name, args.seed, args.lr, args.alpha, args.max_grad_clip,
-                        args.change_task, args.change_every, args.mer, args.mer_gamma, args.mer_lr, args.mer_replay_buffer_size)
+                    "%s_change_task::%s_change_every::%s_mer::%s_mer_gamma::%s_mer_lr::%s_mer_replay_buffer::%s_buffer_size" % (
+                        args.exp_name, args.seed, args.lr, args.alpha, args.max_grad_clip,
+                        args.change_task, args.change_every, args.mer, args.mer_gamma, args.mer_lr, args.mer_replay_buffer_size, args.buffer_size)
     main(args)

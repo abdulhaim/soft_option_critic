@@ -1,5 +1,6 @@
+--find-links https://download.pytorch.org/whl/nightly/cu110/torch_nightly.html
 numpy>=1.14.0
-torch
+torch==1.8.0.dev20210207+cu110
 tensorboardX==1.2
 gitpython==3.0.8
 matplotlib
@@ -9,5 +10,8 @@ mujoco-py<2.1,>=2.0
 pyrr
 path
 theano
-git+https://github.com/rlworkgroup/metaworld.git@new-reward-functions
-
+baselines
+gym_ple
+git+git://github.com/ntasfi/PyGame-Learning-Environment
+pygame
+opencv-python

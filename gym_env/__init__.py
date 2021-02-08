@@ -14,12 +14,12 @@ def make_env(env_name, task_name=None):
         env = CartPoleEnv()
 
     elif env_name == "MetaWorld":
-        import metaworld
+        from metaworld import MT1
         import random
         if task_name:
-            mt1 = metaworld.MT1(task_name)  # Construct the benchmark, sampling tasks
+            mt1 = MT1(task_name, flag=1)  # Construct the benchmark, sampling tasks
             env = mt1.train_classes[task_name]()
-            task = random.choice(mt1.train_tasks)
+            task = mt1.train_tasks[0]
             env.set_task(task)  # Set task
             env.max_episode_steps = env.max_path_length
     else:

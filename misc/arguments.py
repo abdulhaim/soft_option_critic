@@ -20,7 +20,7 @@ parser.add_argument('--eps-decay', type=float, default=500000, help=('Number of 
 parser.add_argument('--option-num', help='number of options', default=2)
 
 # Episodes and Exploration Parameters
-parser.add_argument('--total-step-num', help='total number of time steps', default=75000)
+parser.add_argument('--total-step-num', help='total number of time steps', default=7500000)
 parser.add_argument('--test-num', help='number of episode for recording the return', default=10)
 parser.add_argument('--max-steps', help='Maximum no of steps', type=int, default=1500000)
 parser.add_argument('--update-after', help='steps before updating', type=int, default=1000)
@@ -31,7 +31,7 @@ parser.add_argument('--env_name', help='name of env', type=str, default="CartPol
 parser.add_argument('--seed', help='random seed for repeatability', default=7)
 
 # Plotting Parameters
-parser.add_argument('--save-model-every', help='Save model every certain number of steps', type=int, default=50000)
+parser.add_argument('--save-model-every', help='Save model every certain number of steps', type=int, default=500000)
 parser.add_argument('--exp-name', help='Experiment Name', type=str, default="sac_1")
 parser.add_argument('--model_dir', help='Model directory', type=str, default="model/")
 parser.add_argument('--model_type', help='Model Type', type=str, default="SAC")
@@ -51,6 +51,6 @@ parser.add_argument('--mer-update-target-every', type=int, default=50, help='Rep
 parser.add_argument('--change-task', type=bool, default=False, help='whether to add non-stationarity')
 parser.add_argument('--change-every', type=int, default=25000, help='numb of ep to change task')
 
-parser.add_argument('--load_model', type=bool, default=True, help='load model to visualize')
+parser.add_argument('--load_model', type=bool, default=False, help='load model to visualize')
 
 args = parser.parse_args()

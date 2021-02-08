@@ -2,7 +2,7 @@
 
 FOLDER_NAME="soft_option_critic"
 declare -a arr=(
-    "ec2-3-237-37-222.compute-1.amazonaws.com"
+    "ec2-3-237-19-238.compute-1.amazonaws.com"
     )
 
 for SSH_ADDRESS in "${arr[@]}"
