@@ -7,7 +7,7 @@ import torch.autograd as autograd
 
 
 class Policy(nn.Module):
-    def __init__(self, obs_dim, act_dim):
+    def __init__(self, obs_dim, act_dim, hidden_size):
         super().__init__()
         self.in_channels = 4
         self.input_shape = [4, 84, 84]

@@ -5,8 +5,8 @@
 env_name: Catcher
 lr: 0.0001
 batch_size: 128
-exp_name: MER_changing_task_1
-model_type: SAC
+exp_name: SOC_changing_task_1
+model_type: SOC
 task_name: "window-close-v2"
 test_task_name: "window-open-v2"
 seed: 1
@@ -14,11 +14,11 @@ alpha: 0.005
 change_task: True
 change_every: 25000
 buffer_size: 1.0
-update_after: 1000
+update_after: 200
 load_model: False
 visualize: False
 
-mer: True
+mer: False
 mer_lr: 0.001
 mer_gamma: 0.3
 mer_replay_batch_size: 16

@@ -68,5 +68,7 @@ def convert_onehot(x, dim):
     x = x.flatten().numpy().astype(int)
     one_hot = np.zeros((x.size, dim))
     rows = np.arange(len(x))
+    print(one_hot.shape)
+    print(x.shape)
     one_hot[rows, x] = 1
     return one_hot

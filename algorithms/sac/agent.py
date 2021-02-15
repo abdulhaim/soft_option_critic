@@ -7,7 +7,6 @@ import torch.nn.functional as F
 from copy import deepcopy
 from algorithms.sac.model import SACModel
 from algorithms.sac.cnn_categorical_model import SACModelCategorical
-import torch.autograd as autograd
 
 from torch.optim import Adam
 
@@ -227,4 +226,6 @@ class SoftActorCritic(nn.Module):
 
     def load_model(self, model_dir):
         device = torch.device('cpu')
-        self.model.load_state_dict(torch.load(model_dir, map_location=device))
+        self.model.load_state_dict(torch.load(model_dir, map_location=lambda storage, loc: storage))
+
+        # self.model.load_state_dict(torch.load(model_dir, map_location=device))

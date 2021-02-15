@@ -54,7 +54,7 @@ class CatcherGym(gym.Env):
         state = self._get_image()
         return state
 
-    def _render(self, mode='human', close=False):
+    def _render(self, mode='rgb_array', close=False):
         if close:
             if self.viewer is not None:
                 self.viewer.close()

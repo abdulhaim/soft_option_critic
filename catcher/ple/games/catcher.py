@@ -138,6 +138,7 @@ class Catcher(base.PyGameWrapper):
 
         base.PyGameWrapper.__init__(self, width, height, actions=actions)
         self.speed_constant = speed_constant
+        self.height = height
         self.fruit_size = percent_round_int(height, 0.06)
         self.fruit_fall_speed = self.speed_constant * height
         self.player_speed = 0.021 * width

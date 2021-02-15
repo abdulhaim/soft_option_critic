@@ -4,17 +4,14 @@ import numpy as np
 from misc.torch_utils import tensor
 from misc.tester import test_evaluation
 
-meta_world_alternate = ["window-open-v2", "window-close-v2"]
-
-thresholds = [25000, 50000, 75000, 100000, 125000, 150000, 175000, 200000]
+tasks = [0.0095, 0.0125, 0.0155, 0.0185, 0.0215, 0.0245, 0.0275]
+thresholds = [2000, 2100, 2300, 2400, 2500, 2600, 2000, 2000]
 
 def train(args, agent, env, test_env, replay_buffer):
     state, ep_reward, ep_len = env.reset(), 0, 0
-
     # Sample initial option for SOC
     if args.model_type == "SOC":
         agent.current_option = agent.get_option(state, agent.get_epsilon())
-
     for total_step_count in range(args.total_step_num):
         # Until start_steps have elapsed, randomly sample actions
         # from a uniform distribution for better exploration. Afterwards,
@@ -27,9 +24,8 @@ def train(args, agent, env, test_env, replay_buffer):
 
         else:
             if args.model_type == "SOC":
-                agent.current_option = agent.get_option(tensor(state), agent.get_epsilon())
+                agent.current_option = agent.get_option(state, agent.get_epsilon())
             action = env.action_space.sample()  # Uniform random sampling from action space for exploration
-
         next_state, reward, done, _ = env.step(action)
         if args.visualize:
             env.render()
@@ -40,7 +36,7 @@ def train(args, agent, env, test_env, replay_buffer):
         # Store experience to replay buffer
         if args.model_type == "SOC":
             replay_buffer.store(state, agent.current_option, action, reward, next_state, d)
-            agent.current_sample = (state, action, reward, next_state, done)
+            agent.current_sample = (state, agent.current_option, action, reward, next_state, done)
         else:
             if args.mer:
                 replay_buffer.store_mer(state, action, reward, next_state, d)
@@ -53,7 +49,7 @@ def train(args, agent, env, test_env, replay_buffer):
             beta_prob, beta = agent.predict_option_termination(tensor(next_state), agent.current_option)
             # If term is True, then sample next option
             if beta:
-                agent.current_option = agent.get_option(tensor(next_state), agent.get_epsilon())
+                agent.current_option = agent.get_option(tensor(next_state).squeeze(-1), agent.get_epsilon())
 
         # For next timestep
         state = next_state
@@ -90,14 +86,23 @@ def train(args, agent, env, test_env, replay_buffer):
 
         # Changing Task
         if total_step_count > args.update_after and args.change_task and total_step_count > thresholds[agent.nonstationarity_index] and total_step_count != 0:
-            agent.nonstationarity_index += 1
-            env.speed_constant += 0.03
-            #from gym_env import make_env
-            #env = make_env(args.env_name, meta_world_alternate[agent.nonstationarity_index % 2])
-
-        if total_step_count % args.save_model_every == 0:
             model_path = args.model_dir + args.model_type + "/" + args.env_name + '/'
             pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
-            torch.save(agent.model.state_dict(), model_path + args.exp_name + str(total_step_count) + ".pth", _use_new_zipfile_serialization=False)
+            model_state = agent.model.state_dict()
+            torch.save(model_state, model_path + args.exp_name + str(total_step_count) + "nonstationarity" + str(agent.nonstationarity_index-1) + ".pt")
+            import catcher
+            import gym
+            from baselines.common.atari_wrappers import WarpFrame, FrameStack, MaxAndSkipEnv, ScaledFloatFrame
+
+            agent.nonstationarity_index += 1
+            env = gym.make("CatcherEnv-v0", speed_constant = tasks[agent.nonstationarity_index])
+            env = WarpFrame(env)
+            env = FrameStack(env, 4)
+            env = MaxAndSkipEnv(env, skip=4)
+            env = ScaledFloatFrame(env)
+            reset = env.reset()
+            #from gym_env import make_env
+            #env = make_env(args.env_name, meta_world_alternate[agent.nonstationarity_index % 2])
+            #reset = env.reset()
 
         agent.iteration = total_step_count
