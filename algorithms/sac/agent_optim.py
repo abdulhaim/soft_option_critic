@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from copy import deepcopy
 from algorithms.sac.model import SACModel
 from algorithms.sac.cnn_categorical_model import SACModelCategorical
-
+from collections import OrderedDict
 from torch.optim import Adam
 
 cuda_avail = torch.cuda.is_available()
@@ -37,14 +37,18 @@ class SoftActorCritic(nn.Module):
         for p in self.model_target.parameters():
             p.requires_grad = False
 
-        # Parameter Definitions
-        self.q_params = itertools.chain(self.model.q_function_1.parameters(), self.model.q_function_2.parameters())
         if args.mer:
-            self.pi_optimizer = Adam(self.model.policy.parameters(), lr=args.mer_lr)
-            self.q_optimizer = Adam(self.q_params, lr=args.mer_lr)
+            self.lr = args.mer_lr
         else:
-            self.pi_optimizer = Adam(self.model.policy.parameters(), lr=args.lr)
-            self.q_optimizer = Adam(self.q_params, lr=args.lr)
+            self.lr = args.lr
+        # Parameter Definitions
+        # self.q_params = itertools.chain(self.model.q_function_1.parameters(), self.model.q_function_2.parameters())
+        # if args.mer:
+        #     self.pi_optimizer = Adam(self.model.policy.parameters(), lr=args.mer_lr)
+        #     self.q_optimizer = Adam(self.q_params, lr=args.mer_lr)
+        # else:
+        #     self.pi_optimizer = Adam(self.model.policy.parameters(), lr=args.lr)
+        #     self.q_optimizer = Adam(self.q_params, lr=args.lr)
 
         self.test_iteration = 0
         self.iteration = 0
@@ -99,7 +103,7 @@ class SoftActorCritic(nn.Module):
 
         # MSE loss against Bellman backup
         if isinstance(self.action_space,
-                      gym.spaces.Discrete) and not self.args.mer:
+                      gym.spaces.Discrete) and not self.args.mer:  # TODO: add function to check dimensions for different cases
             assert backup.shape == (self.args.batch_size, 1)
 
         if isinstance(self.action_space, gym.spaces.Discrete):
@@ -141,11 +145,19 @@ class SoftActorCritic(nn.Module):
 
     def update_loss_sac(self, data):
         # First run one gradient descent step for Q1 and Q2
-        self.q_optimizer.zero_grad()
         loss_q = self.compute_loss_q(data)
-        loss_q.backward()
-        torch.nn.utils.clip_grad_norm_(self.q_params, self.args.max_grad_clip)
-        self.q_optimizer.step()
+        q1_grad = torch.autograd.grad(loss_q, self.model.q_function_1.parameters(), create_graph=False)
+        q2_grad = torch.autograd.grad(loss_q, self.model.q_function_2.parameters(), create_graph=False)
+
+        phi_q_1 = OrderedDict()
+        phi_q_2 = OrderedDict()
+
+        for (name, param), grad in zip(self.q_params, q_grad):
+            phi_q_1[name] = param - self.lr * grad
+
+        self.model.q_function_1.load_state_dict(phi_q)
+        self.model.q_function_2.load_state_dict(phi_q)
+
         self.tb_writer.log_data("loss/q_function_loss", self.iteration, loss_q.item())
 
         # # Freeze Q-networks so you don't waste computational effort
@@ -154,11 +166,13 @@ class SoftActorCritic(nn.Module):
             p.requires_grad = False
 
         # Next run one gradient descent step for pi
-        self.pi_optimizer.zero_grad()
         loss_pi = self.compute_loss_pi(data)
-        loss_pi.backward()
-        torch.nn.utils.clip_grad_norm_(self.model.policy.parameters(), self.args.max_grad_clip)
-        self.pi_optimizer.step()
+        pi_grad = torch.autograd.grad(loss_pi, self.model.policy.parameters(), create_graph=False)
+        phi_pi = OrderedDict()
+        for (name, param), grad in zip(self.model.policy.parameters(), pi_grad):
+            phi_pi[name] = param - self.lr * grad
+
+        self.model.policy.load_state_dict(phi_pi)
         self.tb_writer.log_data("loss/policy_loss", self.iteration, loss_pi.item())
 
         # # Unfreeze Q-networks so you can optimize it at next DDPG step.

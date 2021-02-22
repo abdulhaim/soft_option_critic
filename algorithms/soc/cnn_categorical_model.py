@@ -6,7 +6,7 @@ from torch.distributions.categorical import Categorical
 from torch import nn as nn
 import torch.nn.functional as F
 import torch.autograd as autograd
-
+from torch.autograd import Variable
 
 class InterQFunction(torch.nn.Module):
     """
@@ -81,8 +81,10 @@ class IntraQFunction(torch.nn.Module):
             features = self.features(state.permute(0, 3, 1, 2))
         else:
             features = self.features(state.permute(2, 0, 1).unsqueeze(0))
-        state = features.reshape(features.shape[0], self.feature_size())
-        x = torch.cat([state, option, action], dim=-1)
+        features = Variable(features, requires_grad = True)
+        features = torch.flatten(features, start_dim=1)
+        features = Variable(features, requires_grad = True)
+        x = torch.cat([features, option, action], dim=-1)
         q = self.fc(x)
         return torch.squeeze(q, -1)  # Critical to ensure q has right shape.
 
@@ -127,7 +129,7 @@ class IntraOptionPolicy(torch.nn.Module):
             obs = obs.permute(2, 0, 1).unsqueeze(0)
 
         net_out = self.features(obs)
-        x = net_out.reshape(net_out.shape[0], self.feature_size())
+        x = torch.flatten(net_out, start_dim=1)
         mu = torch.matmul(x, self.last_w_layer)
         if gradient:
             b_mu = torch.unsqueeze(self.last_b_layer, axis=1)
@@ -141,9 +143,8 @@ class IntraOptionPolicy(torch.nn.Module):
         if deterministic:
             # Only used for evaluating policy at test time.
             action = torch.argmax(mu, dim=-1)
-
         else:
-            action = action_distribution.sample().cpu()
+            action = action_distribution.sample()
 
         if gradient:
             # Have to deal with situation of 0.0 probabilities because we can't do log 0

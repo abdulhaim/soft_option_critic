@@ -2,15 +2,17 @@ from gym_env.pendulum import PendulumEnv
 from gym_env.cartpole import CartPoleEnv
 import gym
 
+
 def make_env(env_name, task_name=None):
     if env_name == "Catcher":
         import catcher
         from baselines.common.atari_wrappers import WarpFrame, FrameStack, MaxAndSkipEnv, ScaledFloatFrame
-        env = gym.make("CatcherEnv-v0", speed_constant=0.00095)
+        env = gym.make("CatcherEnv-v0", speed_constant=task_name)
         env = WarpFrame(env)
         env = FrameStack(env, 4)
         env = MaxAndSkipEnv(env, skip=4)
         env = ScaledFloatFrame(env)
+        env.reset()
         return env
     elif env_name == "BugCrippled":
         from gym_env.bug_crippled import BugCrippledEnv
@@ -31,4 +33,3 @@ def make_env(env_name, task_name=None):
     else:
         env = gym.make(env_name)
         env.max_episode_steps = 1000
-

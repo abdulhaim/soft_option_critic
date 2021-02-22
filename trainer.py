@@ -5,7 +5,7 @@ from misc.torch_utils import tensor
 from misc.tester import test_evaluation
 
 tasks = [0.0095, 0.0125, 0.0155, 0.0185, 0.0215, 0.0245, 0.0275]
-thresholds = [2000, 2100, 2300, 2400, 2500, 2600, 2000, 2000]
+thresholds = [25000, 50000, 75000, 100000, 125000, 150000, 175000, 200000]
 
 def train(args, agent, env, test_env, replay_buffer):
     state, ep_reward, ep_len = env.reset(), 0, 0
@@ -26,6 +26,7 @@ def train(args, agent, env, test_env, replay_buffer):
             if args.model_type == "SOC":
                 agent.current_option = agent.get_option(state, agent.get_epsilon())
             action = env.action_space.sample()  # Uniform random sampling from action space for exploration
+
         next_state, reward, done, _ = env.step(action)
         if args.visualize:
             env.render()
@@ -90,19 +91,10 @@ def train(args, agent, env, test_env, replay_buffer):
             pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
             model_state = agent.model.state_dict()
             torch.save(model_state, model_path + args.exp_name + str(total_step_count) + "nonstationarity" + str(agent.nonstationarity_index-1) + ".pt")
-            import catcher
-            import gym
-            from baselines.common.atari_wrappers import WarpFrame, FrameStack, MaxAndSkipEnv, ScaledFloatFrame
 
             agent.nonstationarity_index += 1
-            env = gym.make("CatcherEnv-v0", speed_constant = tasks[agent.nonstationarity_index])
-            env = WarpFrame(env)
-            env = FrameStack(env, 4)
-            env = MaxAndSkipEnv(env, skip=4)
-            env = ScaledFloatFrame(env)
-            reset = env.reset()
-            #from gym_env import make_env
-            #env = make_env(args.env_name, meta_world_alternate[agent.nonstationarity_index % 2])
-            #reset = env.reset()
+            speed_constant = tasks[agent.nonstationarity_index]
+            from gym_env import make_env
+            env = make_env(args.env_name, speed_constant)
 
         agent.iteration = total_step_count

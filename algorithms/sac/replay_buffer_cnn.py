@@ -23,8 +23,6 @@ class ReplayBufferSAC(object):
         if self.size >= self.max_size:
             p = random.randint(0, self.ptr)
             if p < self.max_size:
-                state = np.expand_dims(state, 0)
-                next_state = np.expand_dims(next_state, 0)
                 self.buffer[p] = (state, action, reward, next_state, done)
 
         else:
