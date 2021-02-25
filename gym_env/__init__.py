@@ -13,12 +13,9 @@ def make_env(env_name, task_name=None):
         env = MaxAndSkipEnv(env, skip=4)
         env = ScaledFloatFrame(env)
         env.reset()
-        return env
     elif env_name == "BugCrippled":
         from gym_env.bug_crippled import BugCrippledEnv
         env = BugCrippledEnv()
-    elif env_name == "Pendulum-v0":
-        env = PendulumEnv()
     elif env_name == "CartPole-v1":
         env = CartPoleEnv()
     elif env_name == "MetaWorld":
@@ -33,3 +30,4 @@ def make_env(env_name, task_name=None):
     else:
         env = gym.make(env_name)
         env.max_episode_steps = 1000
+    return env

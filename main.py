@@ -50,7 +50,7 @@ def main(args):
         replay_buffer = ReplayBufferSOC(capacity=buffer_size)
     else:
         from algorithms.sac.agent import SoftActorCritic
-        from algorithms.sac.replay_buffer_cnn import ReplayBufferSAC
+        from algorithms.sac.replay_buffer import ReplayBufferSAC
         agent = SoftActorCritic(
             observation_space=env.observation_space,
             action_space=env.action_space,
@@ -59,7 +59,9 @@ def main(args):
             log=log)
 
         buffer_size = args.mer_replay_buffer_size if args.mer else int(args.buffer_size * args.change_every)
-        replay_buffer = ReplayBufferSAC(capacity=buffer_size)
+        # replay_buffer = ReplayBufferSAC(capacity=buffer_size)
+        replay_buffer = ReplayBufferSAC(agent.obs_dim, agent.action_dim, size=buffer_size)
+
         if args.load_model:
             agent.load_model(args.model_name)
             from misc.tester import test_evaluation

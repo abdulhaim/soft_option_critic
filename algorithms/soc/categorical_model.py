@@ -3,10 +3,7 @@ import torch
 import torch.multiprocessing
 from torch.distributions.categorical import Categorical
 
-from misc.torch_utils import weights_init, norm_col_init
-from torch.distributions.normal import Normal
 from torch import nn as nn
-import numpy as np
 import torch.nn.functional as F
 
 
@@ -27,7 +24,7 @@ class InterQFunction(torch.nn.Module):
             nn.Linear(hidden_size, option_dim)
         )
 
-    def forward(self, obs):
+    def forward(self, obs, gradient=True):
         q = self.q(obs)
         return torch.squeeze(q, -1)  # Critical to ensure q has right shape.
 
@@ -42,15 +39,15 @@ class IntraQFunction(torch.nn.Module):
     def __init__(self, obs_dim, act_dim, option_dim, hidden_size):
         super(IntraQFunction, self).__init__()
         self.q = nn.Sequential(
-            nn.Linear(obs_dim + option_dim + act_dim, hidden_size),
+            nn.Linear(obs_dim + option_dim, hidden_size),
             nn.ReLU(),
             nn.Linear(hidden_size, hidden_size),
             nn.ReLU(),
-            nn.Linear(hidden_size, 1)
+            nn.Linear(hidden_size, act_dim)
         )
 
-    def forward(self, state, option, action):
-        q = self.q(torch.cat([state, option, action], dim=-1))
+    def forward(self, state, option, gradient=True):
+        q = self.q(torch.cat([state, option], dim=-1))
         return torch.squeeze(q, -1)  # Critical to ensure q has right shape.
 
 
@@ -86,26 +83,22 @@ class IntraOptionPolicy(torch.nn.Module):
             b_mu = self.last_b_layer
 
         mu = torch.add(mu, b_mu)
-
-        action_probs = F.softmax(mu, dim=-1)
-        action_distribution = Categorical(probs=action_probs)
-
         if deterministic:
             # Only used for evaluating policy at test time.
-            action = x
+            action = torch.argmax(mu, dim=-1)
         else:
+            action_probs = F.softmax(mu, dim=-1)
+            action_distribution = Categorical(probs=action_probs)
             action = action_distribution.sample().cpu()
 
         if with_logprob:
-            # Have to deal with situation of 0.0 probabilities because we can't do log 0
-            z = action_probs == 0.0
-            z = z.float() * 1e-8
+            z = (action_probs == 0.0).float() * 1e-8
             log_action_probabilities = torch.log(action_probs + z)
-            # logs = torch.gather(log_action_probabilities, 1, action.unsqueeze(-1))
+            return action_probs, log_action_probabilities
         else:
-            logs = None
+            log_action_probabilities = None
+            return action, log_action_probabilities
 
-        return action, log_action_probabilities
 
 class BetaPolicy(torch.nn.Module):
     """
@@ -123,7 +116,7 @@ class BetaPolicy(torch.nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_size, option_dim))
 
-    def forward(self, inputs):
+    def forward(self, inputs, gradient=True):
         x = self.net(inputs)
         return torch.sigmoid(x)
 

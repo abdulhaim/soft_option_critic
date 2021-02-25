@@ -33,7 +33,6 @@ class Policy(nn.Module):
 
         if with_logprob:
             # Have to deal with situation of 0.0 probabilities because we can't do log 0
-            # log_action_probs = F.log_softmax(x, dim=-1)
             z = (action_probs == 0.0).float() * 1e-5
             log_action_probabilities = torch.log(action_probs + z)
             return action_probs, log_action_probabilities

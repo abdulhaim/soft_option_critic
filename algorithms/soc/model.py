@@ -26,9 +26,9 @@ class InterQFunction(torch.nn.Module):
             nn.Linear(hidden_size, option_dim)
         )
 
-    def forward(self, obs):
+    def forward(self, obs, gradient=True):
         q = self.q(obs)
-        return torch.squeeze(q, -1)  # Critical to ensure q has right shape.
+        return torch.squeeze(q,-1)  # Critical to ensure q has right shape.
 
 
 class IntraQFunction(torch.nn.Module):
@@ -48,7 +48,7 @@ class IntraQFunction(torch.nn.Module):
             nn.Linear(hidden_size, 1)
         )
 
-    def forward(self, state, option, action):
+    def forward(self, state, option, action, gradient=True):
         q = self.q(torch.cat([state, option, action], dim=-1))
         return torch.squeeze(q, -1)  # Critical to ensure q has right shape.
 
@@ -79,7 +79,7 @@ class IntraOptionPolicy(torch.nn.Module):
         self.b_log_std_layer = torch.randn((option_dim, act_dim))
         self.act_limit = act_limit
 
-    def forward(self, obs, gradient=False):
+    def forward(self, obs, gradient=False, deterministic=False, with_logprob=True):
         x = self.net(obs)
         mu = torch.matmul(x, self.w_mu_layer)
         log_std = torch.matmul(x, self.w_log_std_layer)
@@ -122,7 +122,7 @@ class BetaPolicy(torch.nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_size, option_dim))
 
-    def forward(self, inputs):
+    def forward(self, inputs, gradient=True):
         x = self.net(inputs)
         return torch.sigmoid(x)
 

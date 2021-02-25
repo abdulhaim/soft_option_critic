@@ -6,23 +6,24 @@ import torch.nn as nn
 import torch.nn.functional as F
 from copy import deepcopy
 from algorithms.sac.model import SACModel
-from algorithms.sac.cnn_categorical_model import SACModelCategorical
+from algorithms.sac.categorical_model import SACModelCategorical
 
 from torch.optim import Adam
 
 cuda_avail = torch.cuda.is_available()
 device = torch.device("cuda" if cuda_avail else "cpu")
 
+
 class SoftActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, args, tb_writer, log):
         super(SoftActorCritic, self).__init__()
         self.action_space = action_space
-        self.obs_dim = observation_space
+        self.obs_dim = observation_space.shape[0]
         self.args = args
         self.tb_writer = tb_writer
         self.log = log
 
-        if isinstance(action_space, gym.spaces.Discrete):
+        if isinstance(self.action_space, gym.spaces.Discrete):
             self.action_dim = action_space.n
             self.model = SACModelCategorical(observation_space, action_space, args.hidden_size)
         else:
@@ -55,14 +56,14 @@ class SoftActorCritic(nn.Module):
         return self.current_sample
 
     def compute_loss_q(self, data):
-        o, a, r, o2, d = data
-        o = torch.tensor(o, device=device)
-        o2 = torch.tensor(o2, device=device)
-        d = torch.tensor(d, device=device)
-        r = torch.tensor(r, device=device)
-        a = torch.tensor(a, device=device)
+        # o, a, r, o2, d = data
+        # o = torch.tensor(o, device=device, dtype=torch.float32)
+        # o2 = torch.tensor(o2, device=device, dtype=torch.float32)
+        # d = torch.tensor(d, device=device, dtype=torch.float32)
+        # r = torch.tensor(r, device=device, dtype=torch.float32)
+        # a = torch.tensor(a, device=device, dtype=torch.float32).unsqueeze(-1)
+        o, a, r, o2, d = data['state'], data['action'], data['reward'], data['next_state'], data['done']
 
-        # o, a, r, o2, d = data['state'], data['action'], data['reward'], data['next_state'], data['done']
         if isinstance(self.action_space, gym.spaces.Discrete):
             q1 = self.model.q_function_1(o)
             q2 = self.model.q_function_2(o)
@@ -71,7 +72,7 @@ class SoftActorCritic(nn.Module):
             q2 = self.model.q_function_2(o, a)
 
         if isinstance(self.action_space,
-                      gym.spaces.Discrete) and not self.args.mer:  # TODO: add function to check dimensions for different cases
+                      gym.spaces.Discrete):
             assert q1.shape == (self.args.batch_size, self.action_dim)
 
         # Bellman backup for Q functions
@@ -103,32 +104,34 @@ class SoftActorCritic(nn.Module):
             assert backup.shape == (self.args.batch_size, 1)
 
         if isinstance(self.action_space, gym.spaces.Discrete):
-            loss_q1 = F.mse_loss(torch.gather(q1, 1, a.unsqueeze(-1).long()), backup)
-            loss_q2 = F.mse_loss(torch.gather(q2, 1, a.unsqueeze(-1).long()), backup)
+            loss_q1 = F.mse_loss(torch.gather(q1, 1, a.long()), backup)
+            loss_q2 = F.mse_loss(torch.gather(q2, 1, a.long()), backup)
         else:
-            loss_q1 = F.mse_loss(q1, backup)
-            loss_q2 = F.mse_loss(q2, backup)
+            loss_q1 = ((q1 - backup) ** 2).mean()
+            loss_q2 = ((q2 - backup) ** 2).mean()
 
         loss_q = loss_q1 + loss_q2
 
         logp_a2 = torch.unsqueeze(logp_a2, -1)
-
         entropy_debug = (-a2.unsqueeze(-1) * logp_a2).sum(dim=-1).mean()
         self.tb_writer.log_data("loss/entropy", self.iteration, entropy_debug)
 
         return loss_q
 
     def compute_loss_pi(self, data):
-        o = data[0]
-        o = torch.tensor(o, device=device)
+        # o = data[0]
+        o, a, r, o2, d = data['state'], data['action'], data['reward'], data['next_state'], data['done']
+
+        o = torch.tensor(o, device=device, dtype=torch.float32)
         pi, logp_pi = self.model.policy(o, with_logprob=True)
 
         if isinstance(self.action_space, gym.spaces.Discrete):
-            q1_pi = self.model.q_function_1(o).detach()
-            q2_pi = self.model.q_function_2(o).detach()
+            q1_pi = self.model.q_function_1(o)
+            q2_pi = self.model.q_function_2(o)
         else:
             q1_pi = self.model.q_function_1(o, pi)
             q2_pi = self.model.q_function_2(o, pi)
+
         q_pi = torch.min(q1_pi, q2_pi)
 
         # Entropy-regularized policy loss
@@ -168,14 +171,15 @@ class SoftActorCritic(nn.Module):
         self.update_target_networks()
 
     def update_sac_mer(self, replay_buffer):
+        # TODO: replace with recent sample buffer, SGD (?), try larger batch size, interleave current sample in batch
         random_index = random.randint(1, self.args.mer_replay_batch_size)
         # get current weights
         weights_before_batch = deepcopy(self.model.state_dict())
-        for j_step in range(self.args.mer_replay_batch_size):
+        for j_step in range(4):
             if j_step == random_index:
                 data = self.get_current_sample()
             else:
-                data = replay_buffer.sample_batch(1)
+                data = replay_buffer.sample_batch(4)
 
             # First run one gradient descent step for Q1 and Q2
             loss_q = self.compute_loss_q(data)
@@ -219,7 +223,7 @@ class SoftActorCritic(nn.Module):
 
     def get_action(self, state, deterministic=False):
         with torch.no_grad():
-            state = torch.tensor(state, device=device)
+            state = torch.as_tensor(state, dtype=torch.float32)
             action, logprob = self.model.act(state, deterministic)
             return action, logprob
 

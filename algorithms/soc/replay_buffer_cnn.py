@@ -25,10 +25,10 @@ class ReplayBufferSOC(object):
             if p < self.max_size:
                 state = np.expand_dims(state, 0)
                 next_state = np.expand_dims(next_state, 0)
-                self.buffer[p] = (state, action, reward, next_state, done)
+                self.buffer[p] = (state, option, action, reward, next_state, done)
 
         else:
-            self.buffer.append((state, action, reward, next_state, done))
+            self.buffer.append((state, option, action, reward, next_state, done))
 
         self.size = min(self.size + 1, self.max_size)
         self.ptr += 1

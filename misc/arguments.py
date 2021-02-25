@@ -35,7 +35,7 @@ parser.add_argument('--save-model-every', help='Save model every certain number 
 parser.add_argument('--exp-name', help='Experiment Name', type=str, default="sac_1")
 parser.add_argument('--model_dir', help='Model directory', type=str, default="model/")
 parser.add_argument('--model_type', help='Model Type', type=str, default="SAC")
-parser.add_argument('--config', help='config name', type=str, default="catcher.yaml")
+parser.add_argument('--config', help='config name', type=str, default="discrete_soc.yaml")
 parser.add_argument('--model_name', help='Model Name', type=str, default="old_models/model/SAC/MetaWorld/SAC_MetaWorld_2_150000.pth")
 
 # MER hyper-parameters

@@ -21,12 +21,10 @@ def train(args, agent, env, test_env, replay_buffer):
                 action, _ = agent.get_action(agent.current_option, state)
             else:
                 action, _ = agent.get_action(state)
-
         else:
             if args.model_type == "SOC":
                 agent.current_option = agent.get_option(state, agent.get_epsilon())
             action = env.action_space.sample()  # Uniform random sampling from action space for exploration
-
         next_state, reward, done, _ = env.step(action)
         if args.visualize:
             env.render()
@@ -36,12 +34,19 @@ def train(args, agent, env, test_env, replay_buffer):
         d = False if ep_len == env.max_episode_steps else done
         # Store experience to replay buffer
         if args.model_type == "SOC":
+            import gym
+            if not isinstance(agent.action_space, gym.spaces.Discrete):
+                action = action[0]
             replay_buffer.store(state, agent.current_option, action, reward, next_state, d)
             agent.current_sample = (state, agent.current_option, action, reward, next_state, done)
         else:
             if args.mer:
                 replay_buffer.store_mer(state, action, reward, next_state, d)
             else:
+                import gym
+                if not isinstance(agent.action_space, gym.spaces.Discrete):
+                    action = action[0]
+
                 replay_buffer.store(state, action, reward, next_state, d)
 
         agent.current_sample = (np.expand_dims(state, 0), np.array([action]), reward, np.expand_dims(next_state, 0), done)

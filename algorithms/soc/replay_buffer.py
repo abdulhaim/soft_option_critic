@@ -7,7 +7,7 @@ class ReplayBufferSOC(object):
     """
     A simple FIFO experience replay buffer for SAC agents.
     """
-    def __init__(self, obs_dim, act_dim, option_num, size):
+    def __init__(self, obs_dim, act_dim, size):
         self.state_buf = np.zeros(combined_shape(size, obs_dim), dtype=np.float32)
         self.option_buf = np.zeros(combined_shape(size, 1), dtype=np.float32)
         self.next_state_buf = np.zeros(combined_shape(size, obs_dim), dtype=np.float32)
