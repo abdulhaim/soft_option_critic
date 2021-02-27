@@ -5,7 +5,7 @@
 env_name: Taxi
 lr: 0.001
 batch_size: 100
-exp_name: SAC_discrete_1
+exp_name: SAC_taxi_1
 model_type: SAC
 task_name: Taxi
 test_task_name: Taxi

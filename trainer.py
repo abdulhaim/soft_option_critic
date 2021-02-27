@@ -69,7 +69,7 @@ def train(args, agent, env, test_env, replay_buffer):
             agent.tb_writer.log_data("episodic_reward", total_step_count, ep_reward)
 
             # Logging Testing Returns
-            # test_evaluation(args, agent, env, step_count=total_step_count)
+            test_evaluation(args, agent, test_env, step_count=total_step_count)
 
             # Logging non-stationarity returns
             if args.change_task:

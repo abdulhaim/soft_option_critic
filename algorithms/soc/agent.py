@@ -218,12 +218,17 @@ class SoftOptionCritic(nn.Module):
 
             logp = logp.reshape(self.args.batch_size, self.option_num, self.action_space.n)
             logp = logp[torch.arange(self.args.batch_size), option_indices.squeeze(), :]
+
+            assert current_actions.shape == (self.args.batch_size, self.action_space.n)
+            assert logp.shape == (self.args.batch_size, self.action_space.n)
         else:
             current_actions = torch.gather(current_actions.squeeze(-1).T, 1, option_indices)
             logp = torch.gather(logp.T, 1, option_indices)
 
-        assert current_actions.shape == (self.args.batch_size, self.action_space.n)
-        assert logp.shape == (self.args.batch_size, self.action_space.n)
+            assert current_actions.shape == (self.args.batch_size, self.action_dim)
+            assert logp.shape == (self.args.batch_size, self.action_dim)
+
+
 
         with torch.no_grad():
             q1_inter_targ = self.model_target.inter_q_function_1(next_state, gradient=True)

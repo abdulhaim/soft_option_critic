@@ -86,9 +86,6 @@ class IntraOptionPolicy(torch.nn.Module):
         if deterministic:
             # Only used for evaluating policy at test time.
             action = torch.argmax(mu, dim=-1)
-            print("MU", action.shape)
-            assert 1 == 2
-
         else:
             action_probs = F.softmax(mu, dim=-1)
             action_distribution = Categorical(probs=action_probs)

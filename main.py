@@ -17,7 +17,7 @@ def main(args):
         os.makedirs(args.model_dir)
 
     log = set_log(args)
-    tb_writer = TensorBoardLogger(logdir="./logs/", run_name=args.log_name + time.ctime())
+    tb_writer = TensorBoardLogger(logdir="./logs_tensorboard/", run_name=args.log_name + time.ctime())
 
     if args.env_name == "Rooms":
         from gym_env.fourrooms import Fourrooms

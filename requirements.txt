@@ -6,7 +6,7 @@ gitpython==3.0.8
 matplotlib
 gym
 pyyaml
-mujoco-py<2.1,>=2.0
+#mujoco-py<2.1,>=2.0
 pyrr
 path
 theano
