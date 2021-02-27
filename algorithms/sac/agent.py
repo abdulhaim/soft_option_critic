@@ -3,7 +3,7 @@ import torch
 import random
 import gym
 import torch.nn as nn
-import torch.nn.functional as F
+from math import exp
 from copy import deepcopy
 from algorithms.sac.model import SACModel
 from algorithms.sac.categorical_model import SACModelCategorical
@@ -18,14 +18,17 @@ class SoftActorCritic(nn.Module):
     def __init__(self, observation_space, action_space, args, tb_writer, log):
         super(SoftActorCritic, self).__init__()
         self.action_space = action_space
-        self.obs_dim = observation_space.shape[0]
+        if isinstance(observation_space, gym.spaces.Discrete):
+            self.obs_dim = 1
+        else:
+            self.obs_dim = observation_space.shape[0]
         self.args = args
         self.tb_writer = tb_writer
         self.log = log
 
         if isinstance(self.action_space, gym.spaces.Discrete):
-            self.action_dim = action_space.n
-            self.model = SACModelCategorical(observation_space, action_space, args.hidden_size)
+            self.action_dim = 1
+            self.model = SACModelCategorical(self.obs_dim, action_space, args.hidden_size)
         else:
             self.action_dim = action_space.shape[0]
             self.model = SACModel(observation_space, action_space, args.hidden_size)
@@ -63,7 +66,6 @@ class SoftActorCritic(nn.Module):
         # r = torch.tensor(r, device=device, dtype=torch.float32)
         # a = torch.tensor(a, device=device, dtype=torch.float32).unsqueeze(-1)
         o, a, r, o2, d = data['state'], data['action'], data['reward'], data['next_state'], data['done']
-
         if isinstance(self.action_space, gym.spaces.Discrete):
             q1 = self.model.q_function_1(o)
             q2 = self.model.q_function_2(o)
@@ -73,7 +75,7 @@ class SoftActorCritic(nn.Module):
 
         if isinstance(self.action_space,
                       gym.spaces.Discrete):
-            assert q1.shape == (self.args.batch_size, self.action_dim)
+            assert q1.shape == (self.args.batch_size, self.action_space.n)
 
         # Bellman backup for Q functions
         with torch.no_grad():
@@ -104,8 +106,11 @@ class SoftActorCritic(nn.Module):
             assert backup.shape == (self.args.batch_size, 1)
 
         if isinstance(self.action_space, gym.spaces.Discrete):
-            loss_q1 = F.mse_loss(torch.gather(q1, 1, a.long()), backup)
-            loss_q2 = F.mse_loss(torch.gather(q2, 1, a.long()), backup)
+            q1_new = torch.gather(q1, 1, a.long())
+            q2_new = torch.gather(q2, 1, a.long())
+
+            loss_q1 = ((q1_new - backup) ** 2).mean()
+            loss_q2 = ((q2_new - backup) ** 2).mean()
         else:
             loss_q1 = ((q1 - backup) ** 2).mean()
             loss_q2 = ((q2 - backup) ** 2).mean()
@@ -221,11 +226,27 @@ class SoftActorCritic(nn.Module):
                 p_targ.data.mul_(self.args.polyak)
                 p_targ.data.add_((1 - self.args.polyak) * p.data)
 
+    def get_epsilon(self, decay=False, eval=False):
+        if decay:
+            eps = self.args.eps_min + (self.args.eps_start - self.args.eps_min) * exp(
+                -self.iteration / self.args.eps_decay)
+            self.tb_writer.log_data("epsilon", self.iteration, eps)
+        elif eval:
+            eps = 0.0
+        else:
+            eps = self.args.eps_min
+        return eps
+
     def get_action(self, state, deterministic=False):
         with torch.no_grad():
             state = torch.as_tensor(state, dtype=torch.float32)
-            action, logprob = self.model.act(state, deterministic)
-            return action, logprob
+            epsilon = self.get_epsilon(decay=True)
+            if random.random() < epsilon:
+                action = self.env.action_space.sample()
+                return action, None
+            else:
+                action, logprob = self.model.act(state, deterministic)
+                return action, logprob
 
     def load_model(self, model_dir):
         self.model.load_state_dict(torch.load(model_dir, map_location=lambda storage, loc: storage))

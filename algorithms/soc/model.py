@@ -28,7 +28,7 @@ class InterQFunction(torch.nn.Module):
 
     def forward(self, obs, gradient=True):
         q = self.q(obs)
-        return torch.squeeze(q,-1)  # Critical to ensure q has right shape.
+        return torch.squeeze(q, -1)  # Critical to ensure q has right shape.
 
 
 class IntraQFunction(torch.nn.Module):

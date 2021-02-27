@@ -3,17 +3,20 @@
 #################################################################################
 
 env_name: Pendulum-v0
-lr: 0.0001
-batch_size: 128
-exp_name: SAC_continous_1
-model_type: SAC
+lr: 0.001
+batch_size: 100
+exp_name: SOC_continous_1
+model_type: SOC
 task_name: Pendulum-v0
 test_task_name: Pendulum-v0
 seed: 1
-alpha: 0.005
+alpha: 0.2
+eps_decay: 1
 change_every: 25000
 buffer_size: 100.0
-update_after: 200
+update_after: 1000
 load_model: False
 visualize: False
 option_dim: 2
+option_num: 2
+hidden_size: 256

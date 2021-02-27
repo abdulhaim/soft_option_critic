@@ -19,9 +19,21 @@ def main(args):
     log = set_log(args)
     tb_writer = TensorBoardLogger(logdir="./logs/", run_name=args.log_name + time.ctime())
 
-    from gym_env import make_env
-    env = make_env(args.env_name, args.task_name)
-    test_env = make_env(args.env_name, args.test_task_name)
+    if args.env_name == "Rooms":
+        from gym_env.fourrooms import Fourrooms
+        env = Fourrooms()
+        test_env = Fourrooms()
+    elif args.env_name == "Taxi":
+        from gym_env.taxi import Taxi
+        from gym_env.taxi2a import Taxi2A
+
+        env = Taxi(image_obs=False)
+        test_env = Taxi(image_obs=False)
+
+    else:
+        from gym_env import make_env
+        env = make_env(args.env_name, args.task_name)
+        test_env = make_env(args.env_name, args.test_task_name)
 
     # Set seeds
     random.seed(args.seed)
@@ -39,7 +51,7 @@ def main(args):
     # Set either SOC or SAC
     if args.model_type == "SOC":
         from algorithms.soc.agent import SoftOptionCritic
-        from algorithms.soc.replay_buffer_cnn import ReplayBufferSOC
+        from algorithms.soc.replay_buffer import ReplayBufferSOC
         agent = SoftOptionCritic(
             observation_space=env.observation_space,
             action_space=env.action_space,
@@ -47,7 +59,9 @@ def main(args):
             tb_writer=tb_writer,
             log=log)
         buffer_size = int(args.buffer_size * args.change_every)
-        replay_buffer = ReplayBufferSOC(capacity=buffer_size)
+        # replay_buffer = ReplayBufferSOC(capacity=buffer_size)
+        replay_buffer = ReplayBufferSOC(agent.obs_dim, agent.action_dim, size=buffer_size)
+
     else:
         from algorithms.sac.agent import SoftActorCritic
         from algorithms.sac.replay_buffer import ReplayBufferSAC

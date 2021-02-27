@@ -10,4 +10,4 @@ export CUDA_VISIBLE_DEVICES=-1
 
 # Begin experiment
 python3 main.py \
---config continous_soc.yaml
+--config discrete_soc.yaml

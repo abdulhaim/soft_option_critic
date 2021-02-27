@@ -58,10 +58,9 @@ class QFunction(nn.Module):
 
 
 class SACModelCategorical(nn.Module):
-    def __init__(self, observation_space, action_space, hidden_size):
+    def __init__(self, obs_dim, action_space, hidden_size):
         super().__init__()
 
-        obs_dim = observation_space.shape[0]
         act_dim = action_space.n
 
         # build policy and value functions

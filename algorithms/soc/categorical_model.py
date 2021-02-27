@@ -86,6 +86,9 @@ class IntraOptionPolicy(torch.nn.Module):
         if deterministic:
             # Only used for evaluating policy at test time.
             action = torch.argmax(mu, dim=-1)
+            print("MU", action.shape)
+            assert 1 == 2
+
         else:
             action_probs = F.softmax(mu, dim=-1)
             action_distribution = Categorical(probs=action_probs)
@@ -122,16 +125,16 @@ class BetaPolicy(torch.nn.Module):
 
 
 class SOCModelCategorical(nn.Module):
-    def __init__(self, obs_dim, act_dim, hidden_size, option_dim):
+    def __init__(self, obs_dim, action_space, hidden_size, option_dim):
         super(SOCModelCategorical, self).__init__()
         # Inter-Q Function Definitions
         self.inter_q_function_1 = InterQFunction(obs_dim, option_dim, hidden_size)
         self.inter_q_function_2 = InterQFunction(obs_dim, option_dim, hidden_size)
 
         # Intra-Q Function Definitions
-        self.intra_q_function_1 = IntraQFunction(obs_dim, act_dim, option_dim, hidden_size)
-        self.intra_q_function_2 = IntraQFunction(obs_dim, act_dim, option_dim, hidden_size)
+        self.intra_q_function_1 = IntraQFunction(obs_dim, action_space.n, option_dim, hidden_size)
+        self.intra_q_function_2 = IntraQFunction(obs_dim, action_space.n, option_dim, hidden_size)
 
         # Policy Definitions
-        self.intra_option_policy = IntraOptionPolicy(obs_dim, act_dim, option_dim, hidden_size)
+        self.intra_option_policy = IntraOptionPolicy(obs_dim, action_space.n, option_dim, hidden_size)
         self.beta_policy = BetaPolicy(obs_dim, option_dim, hidden_size)

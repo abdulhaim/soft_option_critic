@@ -16,7 +16,7 @@ parser.add_argument("--max-grad-clip", type=float, default=5.0, help="Max norm g
 # Option Specific Parameters
 parser.add_argument('--eps-start', type=float, default=1.0, help=('Starting value for epsilon.'))
 parser.add_argument('--eps-min', type=float, default=.15, help='Minimum epsilon.')
-parser.add_argument('--eps-decay', type=float, default=500000, help=('Number of steps to minimum epsilon.'))
+parser.add_argument('--eps-decay', type=float, default=50000, help=('Number of steps to minimum epsilon.'))
 parser.add_argument('--option-num', help='number of options', default=2)
 
 # Episodes and Exploration Parameters
@@ -35,7 +35,7 @@ parser.add_argument('--save-model-every', help='Save model every certain number 
 parser.add_argument('--exp-name', help='Experiment Name', type=str, default="sac_1")
 parser.add_argument('--model_dir', help='Model directory', type=str, default="model/")
 parser.add_argument('--model_type', help='Model Type', type=str, default="SAC")
-parser.add_argument('--config', help='config name', type=str, default="discrete_soc.yaml")
+parser.add_argument('--config', help='config name', type=str, default="continous_soc.yaml")
 parser.add_argument('--model_name', help='Model Name', type=str, default="old_models/model/SAC/MetaWorld/SAC_MetaWorld_2_150000.pth")
 
 # MER hyper-parameters

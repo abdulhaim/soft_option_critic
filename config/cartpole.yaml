@@ -2,19 +2,20 @@
 # Catcher Parameters
 #################################################################################
 
-env_name: Rooms
+env_name: CartPole-v1
 lr: 0.001
 batch_size: 100
 exp_name: SAC_discrete_1
 model_type: SAC
-task_name: Rooms
-test_task_name: Rooms
+task_name: CartPole-v1
+test_task_name: CartPole-v1
 seed: 1
 alpha: 0.05
+eps_min: 0.0
 change_every: 25000
 buffer_size: 100.0
 update_after: 1000
-eps_decay: 5000
+eps_decay: 1
 load_model: False
 visualize: False
 option_dim: 4

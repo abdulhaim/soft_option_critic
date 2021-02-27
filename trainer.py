@@ -8,6 +8,7 @@ tasks = [0.0095, 0.0125, 0.0155, 0.0185, 0.0215, 0.0245, 0.0275]
 thresholds = [25000, 50000, 75000, 100000, 125000, 150000, 175000, 200000]
 
 def train(args, agent, env, test_env, replay_buffer):
+    agent.env = env
     state, ep_reward, ep_len = env.reset(), 0, 0
     # Sample initial option for SOC
     if args.model_type == "SOC":
@@ -20,7 +21,7 @@ def train(args, agent, env, test_env, replay_buffer):
             if args.model_type == "SOC":
                 action, _ = agent.get_action(agent.current_option, state)
             else:
-                action, _ = agent.get_action(state)
+                action, _ = agent.get_action(state, deterministic=True)
         else:
             if args.model_type == "SOC":
                 agent.current_option = agent.get_option(state, agent.get_epsilon())
@@ -37,6 +38,7 @@ def train(args, agent, env, test_env, replay_buffer):
             import gym
             if not isinstance(agent.action_space, gym.spaces.Discrete):
                 action = action[0]
+
             replay_buffer.store(state, agent.current_option, action, reward, next_state, d)
             agent.current_sample = (state, agent.current_option, action, reward, next_state, done)
         else:
@@ -55,7 +57,7 @@ def train(args, agent, env, test_env, replay_buffer):
             beta_prob, beta = agent.predict_option_termination(tensor(next_state), agent.current_option)
             # If term is True, then sample next option
             if beta:
-                agent.current_option = agent.get_option(tensor(next_state).squeeze(-1), agent.get_epsilon())
+                agent.current_option = agent.get_option(tensor(next_state), agent.get_epsilon())
 
         # For next timestep
         state = next_state
@@ -67,7 +69,7 @@ def train(args, agent, env, test_env, replay_buffer):
             agent.tb_writer.log_data("episodic_reward", total_step_count, ep_reward)
 
             # Logging Testing Returns
-            test_evaluation(args, agent, env, step_count=total_step_count)
+            # test_evaluation(args, agent, env, step_count=total_step_count)
 
             # Logging non-stationarity returns
             if args.change_task:
