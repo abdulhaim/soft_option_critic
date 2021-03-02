@@ -1,3 +1,3 @@
 # Soft Option Critic 
 
-python main.py
+To run, launch `_train.sh` and change config file appropriately. 

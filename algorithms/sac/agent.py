@@ -175,41 +175,6 @@ class SoftActorCritic(nn.Module):
 
         self.update_target_networks()
 
-    def update_sac_mer(self, replay_buffer):
-        # TODO: replace with recent sample buffer, SGD (?), try larger batch size, interleave current sample in batch
-        random_index = random.randint(1, self.args.mer_replay_batch_size)
-        # get current weights
-        weights_before_batch = deepcopy(self.model.state_dict())
-        for j_step in range(4):
-            if j_step == random_index:
-                data = self.get_current_sample()
-            else:
-                data = replay_buffer.sample_batch(4)
-
-            # First run one gradient descent step for Q1 and Q2
-            loss_q = self.compute_loss_q(data)
-            self.q_optimizer.zero_grad()
-            loss_q.backward()
-            torch.nn.utils.clip_grad_norm_(self.q_params, self.args.max_grad_clip)
-            self.q_optimizer.step()
-            self.tb_writer.log_data("loss/q_function_loss", self.iteration, loss_q.item())
-
-            # Next run one gradient descent step for pi
-            loss_pi = self.compute_loss_pi(data)
-            self.pi_optimizer.zero_grad()
-            loss_pi.backward()
-            torch.nn.utils.clip_grad_norm_(self.model.policy.parameters(), self.args.max_grad_clip)
-            self.pi_optimizer.step()
-            self.tb_writer.log_data("loss/policy_loss", self.iteration, loss_pi.item())
-
-        # within batch reptile meta-update
-        weights_after_batch = deepcopy(self.model.state_dict())
-        self.model.load_state_dict({name: weights_before_batch[name] + (
-                (weights_after_batch[name] - weights_before_batch[name]) * self.args.mer_gamma) for
-                                    name in weights_before_batch})
-
-        self.update_target_networks()
-
     def update_target_networks(self):
         # Reset target action-value network to real action-value network after a certain number of episodes
         # Finally, update target networks by polyak averaging.

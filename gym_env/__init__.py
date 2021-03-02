@@ -1,7 +1,5 @@
-from gym_env.pendulum import PendulumEnv
-from gym_env.cartpole import CartPoleEnv
-import gym
 
+import gym
 
 def make_env(env_name, task_name=None):
     if env_name == "Catcher":
@@ -16,8 +14,12 @@ def make_env(env_name, task_name=None):
     elif env_name == "BugCrippled":
         from gym_env.bug_crippled import BugCrippledEnv
         env = BugCrippledEnv()
-    elif env_name == "CartPole-v1":
-        env = CartPoleEnv()
+    elif env_name == "FourRooms":
+        from gym_env.fourrooms import Fourrooms
+        env = Fourrooms()
+    elif env_name == "Taxi-v1":
+        from gym_env.taxi import Taxi
+        env = Taxi(image_obs=False, add_action_in_obs=False)
     elif env_name == "MetaWorld":
         from metaworld import MT1
         import random
