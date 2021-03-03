@@ -251,7 +251,7 @@ class SoftOptionCritic(nn.Module):
 
         loss_intra_q = loss_intra_q1 + loss_intra_q2
 
-        return loss_intra_q
+        return loss_intra_q, beta_prob
 
     def compute_loss_intra_policy(self, state, option_indices, one_hot_option):
         # Sampling Actions from Policy
