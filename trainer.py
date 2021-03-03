@@ -66,9 +66,6 @@ def train(args, agent, env, test_env, replay_buffer):
             # Logging Testing Returns
             test_evaluation(args, agent, test_env, step_count=total_step_count)
 
-            # Logging non-stationarity returns
-            if args.change_task:
-                test_evaluation(args, agent, test_env, log_name="old_task", step_count=total_step_count)
             state, ep_reward, ep_len = env.reset(), 0, 0
             if args.model_type == "SOC":
                 agent.current_option = agent.get_option(state, agent.get_epsilon())

@@ -11,8 +11,7 @@ task_name: Rooms
 test_task_name: Rooms
 seed: 1
 alpha: 0.05
-change_every: 25000
-buffer_size: 100.0
+buffer_size: 1000000
 update_after: 1000
 eps_decay: 5000
 load_model: False

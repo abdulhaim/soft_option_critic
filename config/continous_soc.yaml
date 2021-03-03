@@ -12,8 +12,7 @@ test_task_name: Pendulum-v0
 seed: 1
 alpha: 0.2
 eps_decay: 1
-change_every: 25000
-buffer_size: 100.0
+buffer_size: 1000000
 update_after: 1000
 load_model: False
 visualize: False

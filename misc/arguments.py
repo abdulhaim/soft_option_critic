@@ -7,7 +7,7 @@ parser.add_argument('--lr', type=float, default=0.001, help='learning rate, can 
 parser.add_argument('--gamma', help='discount factor for critic updates', default=0.99)
 parser.add_argument('--alpha', help='Entropy regularization coefficient', default=0.2)
 parser.add_argument('--polyak', help='averaging for target networks', default=0.995)
-parser.add_argument('--buffer-size', help='max size of the replay buffer', default=1.0)
+parser.add_argument('--buffer-size', help='max size of the replay buffer', default=1000000)
 parser.add_argument('--task-size', help='max size of the replay buffer', default=1.0)
 parser.add_argument('--hidden-size', help='number of units in the hidden layers', default=64)
 parser.add_argument('--batch-size', help='size of minibatch for minibatch-SGD', default=100)
@@ -36,21 +36,7 @@ parser.add_argument('--exp-name', help='Experiment Name', type=str, default="sac
 parser.add_argument('--model_dir', help='Model directory', type=str, default="model/")
 parser.add_argument('--model_type', help='Model Type', type=str, default="SAC")
 parser.add_argument('--config', help='config name', type=str, default="continous_soc.yaml")
-parser.add_argument('--model_name', help='Model Name', type=str, default="old_models/model/SAC/MetaWorld/SAC_MetaWorld_2_150000.pth")
-
-# MER hyper-parameters
-parser.add_argument('--mer', type=bool, default=False, help='whether to use mer')
-parser.add_argument('--mer-lr', type=float, default=1e-4, help='MER learning rate')  # exploration factor in roe
-parser.add_argument('--mer-gamma', type=float, default=0.03,
-                    help='gamma learning rate parameter')  # gating net lr in roe
-parser.add_argument('--mer-replay_batch_size', type=float, default=16,
-                    help='The batch size for experience replay. Denoted as k-1 in the paper.')
-parser.add_argument('--mer_replay_buffer_size', type=int, default=5000, help='Replay buffer size')
-parser.add_argument('--mer-update-target-every', type=int, default=50, help='Replay buffer size')
-
-# Non-stationarity
-parser.add_argument('--change-task', type=bool, default=False, help='whether to add non-stationarity')
-parser.add_argument('--change-every', type=int, default=25000, help='numb of ep to change task')
+parser.add_argument('--model_name', help='Model Name', type=str, default="")
 
 parser.add_argument('--load_model', type=bool, default=False, help='load model to visualize')
 

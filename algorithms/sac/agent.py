@@ -43,28 +43,18 @@ class SoftActorCritic(nn.Module):
 
         # Parameter Definitions
         self.q_params = itertools.chain(self.model.q_function_1.parameters(), self.model.q_function_2.parameters())
-        if args.mer:
-            self.pi_optimizer = Adam(self.model.policy.parameters(), lr=args.mer_lr)
-            self.q_optimizer = Adam(self.q_params, lr=args.mer_lr)
-        else:
-            self.pi_optimizer = Adam(self.model.policy.parameters(), lr=args.lr)
-            self.q_optimizer = Adam(self.q_params, lr=args.lr)
+
+        self.pi_optimizer = Adam(self.model.policy.parameters(), lr=args.lr)
+        self.q_optimizer = Adam(self.q_params, lr=args.lr)
 
         self.test_iteration = 0
         self.iteration = 0
         self.episodes = 0
-        self.nonstationarity_index = 0
 
     def get_current_sample(self):
         return self.current_sample
 
     def compute_loss_q(self, data):
-        # o, a, r, o2, d = data
-        # o = torch.tensor(o, device=device, dtype=torch.float32)
-        # o2 = torch.tensor(o2, device=device, dtype=torch.float32)
-        # d = torch.tensor(d, device=device, dtype=torch.float32)
-        # r = torch.tensor(r, device=device, dtype=torch.float32)
-        # a = torch.tensor(a, device=device, dtype=torch.float32).unsqueeze(-1)
         o, a, r, o2, d = data['state'], data['action'], data['reward'], data['next_state'], data['done']
         if isinstance(self.action_space, gym.spaces.Discrete):
             q1 = self.model.q_function_1(o)
@@ -124,7 +114,6 @@ class SoftActorCritic(nn.Module):
         return loss_q
 
     def compute_loss_pi(self, data):
-        # o = data[0]
         o, a, r, o2, d = data['state'], data['action'], data['reward'], data['next_state'], data['done']
 
         o = torch.tensor(o, device=device, dtype=torch.float32)
