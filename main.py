@@ -19,9 +19,14 @@ def main(args):
     log = set_log(args)
     tb_writer = TensorBoardLogger(logdir="./logs_tensorboard/", run_name=args.log_name + time.ctime())
 
-    from gym_env import make_env
-    env = make_env(args.env_name, args.task_name)
-    test_env = make_env(args.env_name, args.test_task_name)
+    from gym_env import make_envs
+    # env = make_envs(args.env_name, args)
+    # test_env = make_envs(args.env_name, args)
+    import gym
+    env = gym.make("CartPole-v1")
+    test_env = gym.make("CartPole-v1")
+    env.max_episode_steps = 200
+    test_env.max_episode_steps = 200
 
     # Set seeds
     random.seed(args.seed)

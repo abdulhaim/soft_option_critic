@@ -37,7 +37,12 @@ parser.add_argument('--model_dir', help='Model directory', type=str, default="mo
 parser.add_argument('--model_type', help='Model Type', type=str, default="SAC")
 parser.add_argument('--config', help='config name', type=str, default="continous_soc.yaml")
 parser.add_argument('--model_name', help='Model Name', type=str, default="")
-
 parser.add_argument('--load_model', type=bool, default=False, help='load model to visualize')
+
+# MOE Parameters
+parser.add_argument('--output-size', type=int, default=1, help='for moe model')
+parser.add_argument('--num_experts', type=int, default=10, help='for moe model')
+parser.add_argument('--moe-hidden_size', type=int, default=64, help='for moe model')
+parser.add_argument('--top_k', type=int, default=4, help='top_k constant from model model')
 
 args = parser.parse_args()

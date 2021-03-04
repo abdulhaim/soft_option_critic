@@ -41,7 +41,7 @@ class SoftOptionCritic(nn.Module):
                 self.model = SOCModelCategorical(self.obs_dim, self.action_space.n, args.hidden_size, self.option_num)
             else:
                 from algorithms.soc.categorical_model import SOCModelCategorical
-                self.model = SOCModelCategorical(self.obs_dim, self.action_space, args.hidden_size, self.option_num)
+                self.model = SOCModelCategorical(self.obs_dim, self.action_space, args.hidden_size, self.option_num, args.num_experts, args.moe_hidden_size, args.top_k)
 
         else:
             self.action_dim = action_space.shape[0]

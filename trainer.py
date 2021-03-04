@@ -64,7 +64,7 @@ def train(args, agent, env, test_env, replay_buffer):
             agent.tb_writer.log_data("episodic_reward", total_step_count, ep_reward)
 
             # Logging Testing Returns
-            test_evaluation(args, agent, test_env, step_count=total_step_count)
+            # test_evaluation(args, agent, test_env, step_count=total_step_count)
 
             state, ep_reward, ep_len = env.reset(), 0, 0
             if args.model_type == "SOC":
