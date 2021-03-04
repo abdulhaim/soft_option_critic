@@ -292,12 +292,19 @@ class SoftOptionCritic(nn.Module):
     def update_loss_soc(self, data):
         state, option, action, reward, next_state, done = data['state'], data['option'], data['action'], data['reward'], data['next_state'], data['done']
 
+        state = torch.tensor(state, device=device, dtype=torch.float32)
+        next_state = torch.tensor(next_state, device=device, dtype=torch.float32)
+        option = torch.tensor(option, device=device, dtype=torch.float32)
+        done = torch.tensor(done, device=device, dtype=torch.float32)
+        reward = torch.tensor(reward, device=device, dtype=torch.float32)
+        action = torch.tensor(action, device=device, dtype=torch.float32)
+
         reward = reward.unsqueeze(-1)
         done = done.unsqueeze(-1)
 
         one_hot_option = torch.tensor(convert_onehot(option, self.args.option_num), dtype=torch.float32)
         option_indices = torch.LongTensor(option.numpy().flatten().astype(int))
-        option_indices = option_indices.unsqueeze(-1)
+        option_indices = torch.tensor(option_indices.unsqueeze(-1), device=device)
 
         # Updating Intra-Q
         self.intra_q_function_optim.zero_grad()
