@@ -117,13 +117,15 @@ class SoftOptionCritic(nn.Module):
         return termination, option_termination == 1
 
     def get_action(self, option_indices, state, deterministic=False, with_logprob=False):
-        action, logp = self.model.intra_option_policy(torch.as_tensor(state, dtype=torch.float32), gradient=False,
+        action, logp = self.model.intra_option_policy(torch.as_tensor(state, dtype=torch.float32), option_indices,
                                                       deterministic=deterministic, with_logprob=with_logprob)
 
         if isinstance(self.action_space, gym.spaces.Discrete):
-            option_indices = torch.tensor(option_indices, dtype=torch.long).unsqueeze(-1).unsqueeze(-1).cpu()
-            action = action.detach().cpu().unsqueeze(-1)
-            action = torch.gather(action, 0, option_indices).squeeze(-1)
+            # option_indices = torch.tensor(option_indices, dtype=torch.long).unsqueeze(-1).unsqueeze(-1).cpu()
+            # action = action.detach().cpu().unsqueeze(-1)
+            # print("ACTION", action.shape)
+            # print("OPTION", option_indices.shape)
+            # action = torch.gather(action, 0, option_indices).squeeze(-1)
             return action.numpy()[0], logp
         else:
             option_indices = torch.tensor(option_indices, dtype=torch.long).unsqueeze(-1)
@@ -255,21 +257,12 @@ class SoftOptionCritic(nn.Module):
 
     def compute_loss_intra_policy(self, state, option_indices, one_hot_option):
         # Sampling Actions from Policy
-        current_actions, logp = self.model.intra_option_policy(state, gradient=True)
+        current_actions, logp = self.model.intra_option_policy(state, option_indices, deterministic=False)
 
         if isinstance(self.action_space, gym.spaces.Discrete):
-            current_actions = current_actions.reshape(self.args.batch_size, self.option_num, self.action_space.n)
-            current_actions = current_actions[torch.arange(self.args.batch_size), option_indices.squeeze(), :]
-
-            logp = logp.reshape(self.args.batch_size, self.option_num, self.action_space.n)
-            logp = logp[torch.arange(self.args.batch_size), option_indices.squeeze(), :]
-
             assert current_actions.shape == (self.args.batch_size, self.action_space.n)
             assert logp.shape == (self.args.batch_size, self.action_space.n)
         else:
-            current_actions = torch.gather(current_actions.squeeze(-1).T, 1, option_indices)
-            logp = torch.gather(logp.T, 1, option_indices)
-
             assert current_actions.shape == (self.args.batch_size, self.action_dim)
             assert logp.shape == (self.args.batch_size, self.action_dim)
 

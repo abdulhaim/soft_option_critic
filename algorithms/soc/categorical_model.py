@@ -66,6 +66,14 @@ class IntraOptionPolicy(torch.nn.Module):
     def __init__(self, obs_dim, act_dim, option_dim, hidden_size, num_experts, moe_hidden_size, k):
         super(IntraOptionPolicy, self).__init__()
 
+        # self.net = nn.Sequential(
+        #     nn.Linear(obs_dim, hidden_size),
+        #     nn.ReLU(),
+        #     nn.Linear(hidden_size, hidden_size),
+        #     nn.ReLU())
+        # self.last_w_layer = torch.randn((option_dim, hidden_size, act_dim))
+        # self.last_b_layer = torch.randn((option_dim, act_dim))
+
         self.num_experts = num_experts
         self.moe_hidden_size = moe_hidden_size
         self.k = k
@@ -77,8 +85,17 @@ class IntraOptionPolicy(torch.nn.Module):
         self.w_gate = nn.Parameter(torch.zeros(option_dim, obs_dim, num_experts), requires_grad=True)
         self.w_noise = nn.Parameter(torch.zeros(option_dim, obs_dim, num_experts), requires_grad=True)
 
-        self.last_w_layer = torch.randn((option_dim, hidden_size, act_dim))
-        self.last_b_layer = torch.randn((option_dim, act_dim))
+        self.w_gate = nn.Parameter(torch.zeros(option_dim, obs_dim, num_experts), requires_grad=True)
+        self.w_noise = nn.Parameter(torch.zeros(option_dim, obs_dim, num_experts), requires_grad=True)
+
+        # self.w_gate = nn.Parameter(torch.zeros(obs_dim, num_experts), requires_grad=True)
+        self.w_noise = nn.Parameter(torch.zeros(obs_dim, num_experts), requires_grad=True)
+
+        # self.w_gate = nn.ParameterList(
+        #     [nn.Parameter(torch.zeros(obs_dim, num_experts), requires_grad=True) for i in range(option_dim)])
+
+        # self.w_noise = nn.ParameterList(
+        #     [nn.Parameter(torch.zeros(obs_dim, num_experts), requires_grad=True) for i in range(option_dim)])
 
         self.softplus = nn.Softplus()
         self.softmax = nn.Softmax(1)
@@ -144,7 +161,7 @@ class IntraOptionPolicy(torch.nn.Module):
         prob = torch.where(is_in, prob_if_in, prob_if_out)
         return prob
 
-    def noisy_top_k_gating(self, obs, train, noise_epsilon=1e-2):
+    def noisy_top_k_gating(self, obs, option, deterministic):
         """Noisy top-k gating.
           See paper: https://arxiv.org/abs/1701.06538.
           Args:
@@ -158,7 +175,18 @@ class IntraOptionPolicy(torch.nn.Module):
         # choosing which experts based on observation
 
         logits = obs @ self.w_gate
+        if deterministic:
+            logits = logits[torch.tensor(option),:]
+
+        else:
+            option = option.unsqueeze(0).expand(1, self., 10)
+            logits = torch.gather(logits, 0, option)
+
         # calculate topk + 1 experts that will be needed for the noisy gates
+        if deterministic:
+            logits = logits.unsqueeze(0)
+        else:
+            logits = logits.squeeze(0)
         top_logits, top_indices = logits.topk(min(self.k + 1, self.num_experts), dim=1)
         top_k_logits = top_logits[:, :self.k]
         top_k_indices = top_indices[:, :self.k]
@@ -168,32 +196,22 @@ class IntraOptionPolicy(torch.nn.Module):
         load = self._gates_to_load(gates)
         return gates, load
 
-    def forward(self, obs, gradient=False, deterministic=False, with_logprob=True, loss_coef=1e-2):
-        gates, load = self.noisy_top_k_gating(obs, gradient)
-        # calculate importance loss
-        importance = gates.sum(1)
-        loss = self.cv_squared(importance) + self.cv_squared(load)
-        loss *= loss_coef
+    def forward(self, obs, option, deterministic=False, with_logprob=True, loss_coef=1e-2):
+        gates, load = self.noisy_top_k_gating(obs, option, deterministic)
 
-        dispatcher = SparseDispatcher(self.num_experts, gates)
+        dispatcher = SparseDispatcher(self.num_experts, gates, option)
+        if deterministic:
+            obs = obs.unsqueeze(0)
         expert_inputs = dispatcher.dispatch(obs)
-        gates = dispatcher.expert_to_gates()
         expert_outputs = [self.experts[i](expert_inputs[i]) for i in range(self.num_experts)]
-        y = dispatcher.combine(expert_outputs)
 
-        mu = torch.matmul(obs, self.last_w_layer)
+        output = dispatcher.combine(expert_outputs)
 
-        if gradient:
-            b_mu = torch.unsqueeze(self.last_b_layer, axis=1)
-        else:
-            b_mu = self.last_b_layer
-
-        mu = torch.add(mu, b_mu)
         if deterministic:
             # Only used for evaluating policy at test time.
-            action = torch.argmax(mu, dim=-1)
+            action = torch.argmax(output, dim=-1)
         else:
-            action_probs = F.softmax(mu, dim=-1)
+            action_probs = F.softmax(output, dim=-1)
             action_distribution = Categorical(probs=action_probs)
             action = action_distribution.sample().cpu()
 

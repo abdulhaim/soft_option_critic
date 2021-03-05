@@ -43,16 +43,14 @@ class SparseDispatcher(object):
     `Tensor`s for expert i only the batch elements for which `gates[b, i] > 0`.
     """
 
-    def __init__(self, num_experts, gates):
+    def __init__(self, num_experts, gates, option):
         """Create a SparseDispatcher."""
 
-        self._gates = gates
         self._num_experts = num_experts
+        self._gates = gates
         # sort experts
-        print(self._gates.shape)
         sorted_experts, index_sorted_experts = torch.nonzero(gates).sort(0)
         # drop indices
-        print(sorted_experts.shape)
         _, self._expert_index = sorted_experts.split(1, dim=1)
         # get according batch index for each expert
         self._batch_index = sorted_experts[index_sorted_experts[:, 1], 0]

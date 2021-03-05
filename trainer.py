@@ -17,7 +17,7 @@ def train(args, agent, env, test_env, replay_buffer):
         # use the learned policy.
         if total_step_count > args.update_after:
             if args.model_type == "SOC":
-                action, _ = agent.get_action(agent.current_option, state)
+                action, _ = agent.get_action(agent.current_option, state,  deterministic=True)
             else:
                 action, _ = agent.get_action(state, deterministic=True)
         else:
