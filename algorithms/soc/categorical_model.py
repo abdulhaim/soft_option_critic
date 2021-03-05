@@ -179,7 +179,7 @@ class IntraOptionPolicy(torch.nn.Module):
             logits = logits[torch.tensor(option),:]
 
         else:
-            option = option.unsqueeze(0).expand(1, self., 10)
+            option = option.unsqueeze(0).expand(1, 100, 10)
             logits = torch.gather(logits, 0, option)
 
         # calculate topk + 1 experts that will be needed for the noisy gates
