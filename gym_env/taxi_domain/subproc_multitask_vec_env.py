@@ -12,7 +12,6 @@ from baselines.common.vec_env import VecEnv, CloudpickleWrapper
 import gym
 from baselines.common.vec_env.dummy_vec_env import DummyVecEnv
 
-
 def draw_and_set_task(self, constraint, seed):
     seeds = [None] * self.num_envs
     for e in range(self.num_envs):
@@ -23,9 +22,7 @@ def draw_and_set_task(self, constraint, seed):
         seeds[e] = unwrapped_env.draw_and_set_task(constraint[e], seed[e])
     return seeds
 
-
 DummyVecEnv.draw_and_set_task = draw_and_set_task
-
 
 def worker(remote, parent_remote, env_fn_wrapper):
     parent_remote.close()
@@ -59,8 +56,7 @@ def worker(remote, parent_remote, env_fn_wrapper):
                 # print("spaces sent")
             elif cmd == 'draw_and_set_task':
                 # print(data)
-                seed = unwrapped_env.draw_and_set_task(
-                    data['constraint'], data['seed'])
+                seed = unwrapped_env.draw_and_set_task(data['constraint'], data['seed'])
                 # print(seed)
                 remote.send(seed)
             else:
@@ -76,7 +72,6 @@ class MTSubprocVecEnv(VecEnv):
     VecEnv that runs multiple environments in parallel in subproceses and communicates with them via pipes.
     Recommended to use when num_envs > 1 and step() can be a bottleneck.
     """
-
     def __init__(self, env_fns, spaces=None):
         """
         Arguments:
@@ -100,20 +95,20 @@ class MTSubprocVecEnv(VecEnv):
         VecEnv.__init__(self, len(env_fns), observation_space, action_space)
 
     def step_async(self, actions):
-        self._assert_not_closed()
+        self.assert_not_closed()
         for remote, action in zip(self.remotes, actions):
             remote.send(('step', action))
         self.waiting = True
 
     def step_wait(self):
-        self._assert_not_closed()
+        self.assert_not_closed()
         results = [remote.recv() for remote in self.remotes]
         self.waiting = False
         obs, rews, dones, infos = zip(*results)
         return np.stack(obs), np.stack(rews), np.stack(dones), infos
 
     def draw_and_set_task(self, constraint, seed):
-        self._assert_not_closed()
+        self.assert_not_closed()
         print(len(self.remotes), len(constraint), len(seed))
         for remote, c, s in zip(self.remotes, constraint, seed):
             data = {'constraint': c, 'seed': s}
@@ -124,7 +119,7 @@ class MTSubprocVecEnv(VecEnv):
         return results
 
     def reset(self):
-        self._assert_not_closed()
+        self.assert_not_closed()
         for remote in self.remotes:
             remote.send(('reset', None))
         return np.stack([remote.recv() for remote in self.remotes])
@@ -140,8 +135,11 @@ class MTSubprocVecEnv(VecEnv):
             p.join()
 
     def get_images(self):
-        self._assert_not_closed()
+        self.assert_not_closed()
         for pipe in self.remotes:
             pipe.send(('render', None))
         imgs = [pipe.recv() for pipe in self.remotes]
         return imgs
+
+    def assert_not_closed(self):
+        assert not self.closed, "Trying to operate on a SubprocVecEnv after calling close()"

@@ -2,13 +2,13 @@
 # Catcher Parameters
 #################################################################################
 
-env_name: MyTaxi-v1
+env_name: Taxi-v3
 lr: 0.001
 batch_size: 100
-exp_name: SAC_taxi_1
-model_type: SAC
-task_name: MyTaxi-v1
-test_task_name: MyTaxi-v1
+exp_name: SOC_taxi_1
+model_type: SOC
+task_name: Taxi-v3
+test_task_name: Taxi-v3
 seed: 1
 alpha: 0.05
 eps_min: 0.0
