@@ -2,6 +2,8 @@ import torch
 import numpy as np
 from misc.torch_utils import combined_shape
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 class ReplayBufferSOC(object):
     """
@@ -35,4 +37,4 @@ class ReplayBufferSOC(object):
             reward=self.reward_buf[idxs],
             next_state=self.next_state_buf[idxs],
             done=self.done_buf[idxs])
-        return {k: torch.as_tensor(v, dtype=torch.float32) for k, v in batch.items()}
+        return {k: torch.as_tensor(v, dtype=torch.float32, device=device) for k, v in batch.items()}

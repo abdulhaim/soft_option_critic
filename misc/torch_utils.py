@@ -58,14 +58,16 @@ def weights_init(m):
         m.weight.data.uniform_(-w_bound, w_bound)
         m.bias.data.fill_(0)
 
+
 def tensor(x):
     if isinstance(x, torch.Tensor):
         return x.to(device).float()
     x = torch.tensor(x, device=device)
     return x.to(device).float()
 
+
 def convert_onehot(x, dim):
-    x = x.flatten().numpy().astype(int)
+    x = x.cpu().flatten().numpy().astype(int)
     one_hot = np.zeros((x.size, dim))
     rows = np.arange(len(x))
     one_hot[rows, x] = 1

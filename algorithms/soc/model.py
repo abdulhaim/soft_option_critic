@@ -1,12 +1,12 @@
-import math
 import torch
 import torch.multiprocessing
-
-from misc.torch_utils import weights_init, norm_col_init
-from torch.distributions.normal import Normal
-from torch import nn as nn
 import numpy as np
 import torch.nn.functional as F
+from torch.distributions.normal import Normal
+from torch import nn as nn
+
+LOG_STD_MAX = 2
+LOG_STD_MIN = -20
 
 
 class InterQFunction(torch.nn.Module):
@@ -23,8 +23,7 @@ class InterQFunction(torch.nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_size, hidden_size),
             nn.ReLU(),
-            nn.Linear(hidden_size, option_dim)
-        )
+            nn.Linear(hidden_size, option_dim))
 
     def forward(self, obs, gradient=True):
         q = self.q(obs)
@@ -45,16 +44,11 @@ class IntraQFunction(torch.nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_size, hidden_size),
             nn.ReLU(),
-            nn.Linear(hidden_size, 1)
-        )
+            nn.Linear(hidden_size, 1))
 
     def forward(self, state, option, action, gradient=True):
         q = self.q(torch.cat([state, option, action], dim=-1))
         return torch.squeeze(q, -1)  # Critical to ensure q has right shape.
-
-
-LOG_STD_MAX = 2
-LOG_STD_MIN = -20
 
 
 class IntraOptionPolicy(torch.nn.Module):

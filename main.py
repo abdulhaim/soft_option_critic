@@ -8,6 +8,8 @@ from misc.utils import set_log, load_config
 from misc.arguments import args
 from trainer import train
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def main(args):
     # Create directories
@@ -34,6 +36,10 @@ def main(args):
     test_env.seed(args.seed)
     test_env.action_space.seed(args.seed)
 
+    if device == torch.device("cuda"):
+        torch.backends.cudnn.deterministic = True
+        torch.cuda.manual_seed(args.seed)
+
     torch.set_num_threads(3)
 
     # Set either SOC or SAC
@@ -47,7 +53,6 @@ def main(args):
             tb_writer=tb_writer,
             log=log)
         replay_buffer = ReplayBufferSOC(agent.obs_dim, agent.action_dim, size=args.buffer_size)
-
     else:
         from algorithms.sac.agent import SoftActorCritic
         from algorithms.sac.replay_buffer import ReplayBufferSAC
@@ -75,5 +80,5 @@ if __name__ == '__main__':
 
     # Set log name
     args.log_name = "%s_env::%s_seed::%s_lr::%s_alpha::%s_max_grad_clip::%s_option_num" % (
-                        args.exp_name, args.seed, args.lr, args.alpha, args.max_grad_clip, args.option_num)
+        args.exp_name, args.seed, args.lr, args.alpha, args.max_grad_clip, args.option_num)
     main(args)

@@ -14,8 +14,7 @@ from misc.torch_utils import tensor
 import torch.nn.functional as F
 from misc.torch_utils import convert_onehot
 
-cuda_avail = torch.cuda.is_available()
-device = torch.device("cuda" if cuda_avail else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.autograd.set_detect_anomaly(True)
 
 
@@ -42,15 +41,13 @@ class SoftOptionCritic(nn.Module):
             else:
                 from algorithms.soc.categorical_model import SOCModelCategorical
                 self.model = SOCModelCategorical(self.obs_dim, self.action_space, args.hidden_size, self.option_num)
-
         else:
-            self.action_dim = action_space.shape[0]
-
             from algorithms.soc.model import SOCModel
+            self.action_dim = action_space.shape[0]
             self.model = SOCModel(self.obs_dim, self.action_dim, self.args.hidden_size, self.option_num,
                                   action_space.high[0])
-
-        self.model_target = deepcopy(self.model)
+        self.model = self.model.to(device)
+        self.model_target = deepcopy(self.model).to(device)
 
         # Parameter Definitions
         self.q_params_inter = itertools.chain(
@@ -89,8 +86,8 @@ class SoftOptionCritic(nn.Module):
         return eps
 
     def get_option(self, state, eta, gradient=False):  # soft-epsilon strategy
-        q_function = torch.min(self.model.inter_q_function_1(tensor(state), gradient=gradient),
-                               self.model.inter_q_function_2(tensor(state), gradient=gradient))
+        q_function = torch.min(self.model.inter_q_function_1(tensor(state).to(device), gradient=gradient),
+                               self.model.inter_q_function_2(tensor(state).to(device), gradient=gradient))
 
         if self.args.option_num != 1:
             option = np.argmax(q_function.data.cpu().numpy(), axis=-1)
@@ -144,7 +141,7 @@ class SoftOptionCritic(nn.Module):
             assert q_pi.shape == (self.args.batch_size, self.option_num)
 
             q_pi_current_option = torch.gather(q_pi, 1, option_indices)
-            q_pi_next_option = torch.max(q_pi.data.cpu(), dim=1)[0].unsqueeze(-1)
+            q_pi_next_option = torch.max(q_pi, dim=1)[0].unsqueeze(-1)
 
             assert q_pi_current_option.shape == (self.args.batch_size, 1)
             assert q_pi_next_option.shape == (self.args.batch_size, 1)
@@ -292,30 +289,32 @@ class SoftOptionCritic(nn.Module):
     def update_loss_soc(self, data):
         state, option, action, reward, next_state, done = data['state'], data['option'], data['action'], data['reward'], data['next_state'], data['done']
 
-        state = torch.tensor(state, device=device, dtype=torch.float32)
-        next_state = torch.tensor(next_state, device=device, dtype=torch.float32)
-        option = torch.tensor(option, device=device, dtype=torch.float32)
-        done = torch.tensor(done, device=device, dtype=torch.float32)
-        reward = torch.tensor(reward, device=device, dtype=torch.float32)
-        action = torch.tensor(action, device=device, dtype=torch.float32)
+        # NOTE Marwa, no need to do the below as they already tensor made from sample_batch func in replay_buffer.py
+        # state = torch.tensor(state, device=device, dtype=torch.float32)
+        # next_state = torch.tensor(next_state, device=device, dtype=torch.float32)
+        # option = torch.tensor(option, device=device, dtype=torch.float32)
+        # done = torch.tensor(done, device=device, dtype=torch.float32)
+        # reward = torch.tensor(reward, device=device, dtype=torch.float32)
+        # action = torch.tensor(action, device=device, dtype=torch.float32)
 
         reward = reward.unsqueeze(-1)
         done = done.unsqueeze(-1)
 
         one_hot_option = torch.tensor(convert_onehot(option, self.args.option_num), dtype=torch.float32)
-        option_indices = torch.LongTensor(option.numpy().flatten().astype(int))
-        option_indices = torch.tensor(option_indices.unsqueeze(-1), device=device)
+        option_indices = torch.LongTensor(option.cpu().numpy().flatten().astype(int)).unsqueeze(-1).to(device)
 
         # Updating Intra-Q
-        self.intra_q_function_optim.zero_grad()
         loss_intra_q, beta_prob = self.compute_loss_intra_q(state, action, one_hot_option, option_indices, next_state, reward, done)
-        loss_intra_pi, current_actions, logp = self.compute_loss_intra_policy(state, option_indices, one_hot_option)
+
+        self.intra_q_function_optim.zero_grad()
         loss_intra_q.backward()
         torch.nn.utils.clip_grad_norm_(self.q_params_intra, self.args.max_grad_clip)
         self.intra_q_function_optim.step()
         self.tb_writer.log_data("intra_q_function_loss", self.iteration, loss_intra_q.item())
 
         # Updating Intra-Policy
+        loss_intra_pi, current_actions, logp = self.compute_loss_intra_policy(state, option_indices, one_hot_option)
+
         self.intra_policy_optim.zero_grad()
         loss_intra_pi.backward()
         torch.nn.utils.clip_grad_norm_(self.intra_policy_params, self.args.max_grad_clip)
@@ -323,16 +322,18 @@ class SoftOptionCritic(nn.Module):
         self.tb_writer.log_data("intra_q_policy_loss", self.iteration, loss_intra_pi.item())
 
         # Updating Inter-Q
-        self.inter_q_function_optim.zero_grad()
         loss_inter_q = self.compute_loss_inter(state, option_indices, one_hot_option, current_actions, logp)
+
+        self.inter_q_function_optim.zero_grad()
         loss_inter_q.backward()
         torch.nn.utils.clip_grad_norm_(self.q_params_inter, self.args.max_grad_clip)
         self.inter_q_function_optim.step()
         self.tb_writer.log_data("inter_q_function_loss", self.iteration, loss_inter_q.item())
 
         # Updating Beta-Policy
-        self.beta_optim.zero_grad()
         loss_beta = self.compute_loss_beta(next_state, option_indices, beta_prob, done)
+
+        self.beta_optim.zero_grad()
         loss_beta.backward()
         torch.nn.utils.clip_grad_norm_(self.beta_params, self.args.max_grad_clip)
         self.beta_optim.step()
@@ -367,4 +368,3 @@ class SoftOptionCritic(nn.Module):
                 # params, as opposed to "mul" and "add", which would make new tensors.
                 p_targ.data.mul_(self.args.polyak)
                 p_targ.data.add_((1 - self.args.polyak) * p.data)
-
