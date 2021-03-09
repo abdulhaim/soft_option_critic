@@ -17,8 +17,7 @@ update_after: 1000
 eps_decay: 1
 load_model: False
 visualize: False
-option_dim: 1
-option_num: 1
+option_dim: 2
+option_num: 2
 
 num_tasks: 12
-num_processes_per_task: 16

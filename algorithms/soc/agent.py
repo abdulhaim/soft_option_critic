@@ -40,7 +40,7 @@ class SoftOptionCritic(nn.Module):
                 self.model = SOCModelCategorical(self.obs_dim, self.action_space.n, args.hidden_size, self.option_num)
             else:
                 from algorithms.soc.categorical_model import SOCModelCategorical
-                self.model = SOCModelCategorical(self.obs_dim, self.action_space, args.hidden_size, self.option_num, args.num_experts, args.moe_hidden_size, args.top_k)
+                self.model = SOCModelCategorical(self.obs_dim, self.action_space, args.hidden_size, self.option_num, args.num_experts, args.moe_hidden_size, args.top_k, self.args.batch_size)
 
         else:
             self.action_dim = action_space.shape[0]
@@ -103,7 +103,6 @@ class SoftOptionCritic(nn.Module):
         else:
             if random.random() < eta:
                 option = random.randint(0, self.option_num - 1)
-            self.tb_writer.log_data("option", self.iteration, option)
             return option
 
     def predict_option_termination(self, state, option_indices, gradient=False):
@@ -120,11 +119,6 @@ class SoftOptionCritic(nn.Module):
                                                       deterministic=deterministic, with_logprob=with_logprob)
 
         if isinstance(self.action_space, gym.spaces.Discrete):
-            # option_indices = torch.tensor(option_indices, dtype=torch.long).unsqueeze(-1).unsqueeze(-1).cpu()
-            # action = action.detach().cpu().unsqueeze(-1)
-            # print("ACTION", action.shape)
-            # print("OPTION", option_indices.shape)
-            # action = torch.gather(action, 0, option_indices).squeeze(-1)
             return action.numpy()[0], logp
         else:
             option_indices = torch.tensor(option_indices, dtype=torch.long).unsqueeze(-1)
@@ -198,6 +192,11 @@ class SoftOptionCritic(nn.Module):
         loss_inter_q2 = F.mse_loss(q2_inter, backup_inter)
 
         loss_inter_q = loss_inter_q1 + loss_inter_q2
+
+        logp = torch.unsqueeze(logp, -1)
+        entropy_debug = (-current_actions.unsqueeze(-1) * logp).sum(dim=-1).mean()
+        self.tb_writer.log_data("loss/entropy", self.iteration, entropy_debug)
+
         return loss_inter_q
 
     def compute_loss_intra_q(self, state, action, one_hot_option, option_indices, next_state, reward, done):
@@ -289,7 +288,6 @@ class SoftOptionCritic(nn.Module):
 
         one_hot_option = torch.tensor(convert_onehot(option, self.args.option_num), dtype=torch.float32)
         option_indices = torch.LongTensor(option.cpu().numpy().flatten().astype(int)).unsqueeze(-1).to(device)
-        option_indices = option_indices.unsqueeze(-1)
 
         # Updating Intra-Q
         loss_intra_q, beta_prob = self.compute_loss_intra_q(state, action, one_hot_option, option_indices, next_state, reward, done)

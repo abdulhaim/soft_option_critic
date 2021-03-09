@@ -17,6 +17,7 @@ class InterQFunction(torch.nn.Module):
 
     def __init__(self, obs_dim, option_dim, hidden_size):
         super(InterQFunction, self).__init__()
+        self.fc1 =  nn.Linear(obs_dim, hidden_size)
         self.q = nn.Sequential(
             nn.Linear(obs_dim, hidden_size),
             nn.ReLU(),
@@ -26,6 +27,8 @@ class InterQFunction(torch.nn.Module):
         )
 
     def forward(self, obs, gradient=True):
+        # if len(obs.shape) == 1:
+        #     obs = obs.unsqueeze(-1)
         q = self.q(obs)
         return torch.squeeze(q, -1)  # Critical to ensure q has right shape.
 
@@ -63,39 +66,20 @@ class IntraOptionPolicy(torch.nn.Module):
     Output: number of actions
     """
 
-    def __init__(self, obs_dim, act_dim, option_dim, hidden_size, num_experts, moe_hidden_size, k):
+    def __init__(self, obs_dim, act_dim, option_dim, hidden_size, num_experts, moe_hidden_size, k, batch_size):
         super(IntraOptionPolicy, self).__init__()
-
-        # self.net = nn.Sequential(
-        #     nn.Linear(obs_dim, hidden_size),
-        #     nn.ReLU(),
-        #     nn.Linear(hidden_size, hidden_size),
-        #     nn.ReLU())
-        # self.last_w_layer = torch.randn((option_dim, hidden_size, act_dim))
-        # self.last_b_layer = torch.randn((option_dim, act_dim))
 
         self.num_experts = num_experts
         self.moe_hidden_size = moe_hidden_size
         self.k = k
+        self.batch_size = batch_size
+
         # instantiate experts
-
         self.experts = nn.ModuleList(
-            [MLP(obs_dim, act_dim, self.moe_hidden_size) for i in range(self.num_experts)])
+            [MLP(obs_dim, act_dim, hidden_size) for i in range(self.num_experts)])
 
         self.w_gate = nn.Parameter(torch.zeros(option_dim, obs_dim, num_experts), requires_grad=True)
         self.w_noise = nn.Parameter(torch.zeros(option_dim, obs_dim, num_experts), requires_grad=True)
-
-        self.w_gate = nn.Parameter(torch.zeros(option_dim, obs_dim, num_experts), requires_grad=True)
-        self.w_noise = nn.Parameter(torch.zeros(option_dim, obs_dim, num_experts), requires_grad=True)
-
-        # self.w_gate = nn.Parameter(torch.zeros(obs_dim, num_experts), requires_grad=True)
-        self.w_noise = nn.Parameter(torch.zeros(obs_dim, num_experts), requires_grad=True)
-
-        # self.w_gate = nn.ParameterList(
-        #     [nn.Parameter(torch.zeros(obs_dim, num_experts), requires_grad=True) for i in range(option_dim)])
-
-        # self.w_noise = nn.ParameterList(
-        #     [nn.Parameter(torch.zeros(obs_dim, num_experts), requires_grad=True) for i in range(option_dim)])
 
         self.softplus = nn.Softplus()
         self.softmax = nn.Softmax(1)
@@ -161,38 +145,35 @@ class IntraOptionPolicy(torch.nn.Module):
         prob = torch.where(is_in, prob_if_in, prob_if_out)
         return prob
 
-    def noisy_top_k_gating(self, obs, option, deterministic):
-        """Noisy top-k gating.
-          See paper: https://arxiv.org/abs/1701.06538.
-          Args:
-            x: input Tensor with shape [batch_size, input_size]
-            train: a boolean - we only add noise at training time.
-            noise_epsilon: a float
-          Returns:
-            gates: a Tensor with shape [batch_size, num_experts]
-            load: a Tensor with shape [num_experts]
-        """
-        # choosing which experts based on observation
-
-        logits = obs @ self.w_gate
+    def noisy_top_k_gating(self, obs, option, deterministic, noisy_gating=True):
+        # choosing which experts to use via logits based on observation
         if deterministic:
-            logits = logits[torch.tensor(option),:]
+            obs = obs.unsqueeze(0)
+            logits = obs @ self.w_gate[option, :, :]
 
         else:
-            option = option.unsqueeze(0).expand(1, 100, 10)
-            logits = torch.gather(logits, 0, option)
+            logits = []
+            for i in range(option.shape[0]):
+                option_element = option[i]
+                obs_element = obs[i]
+                obs_element = obs_element.squeeze(0)
+                logit = obs_element @ self.w_gate[option_element, :, :]
+                logits.append(logit)
 
-        # calculate topk + 1 experts that will be needed for the noisy gates
-        if deterministic:
-            logits = logits.unsqueeze(0)
-        else:
-            logits = logits.squeeze(0)
+            logits = torch.cat(logits, axis=0)
+
+        # choose top experts based on logits
         top_logits, top_indices = logits.topk(min(self.k + 1, self.num_experts), dim=1)
         top_k_logits = top_logits[:, :self.k]
         top_k_indices = top_indices[:, :self.k]
         top_k_gates = self.softmax(top_k_logits)
         zeros = torch.zeros_like(logits, requires_grad=True)
         gates = zeros.scatter(1, top_k_indices, top_k_gates)
+        if deterministic:
+            assert gates.shape == (1, self.num_experts)
+        else:
+            assert gates.shape == (self.batch_size, self.num_experts)
+
         load = self._gates_to_load(gates)
         return gates, load
 
@@ -211,7 +192,7 @@ class IntraOptionPolicy(torch.nn.Module):
             # Only used for evaluating policy at test time.
             action = torch.argmax(output, dim=-1)
         else:
-            action_probs = F.softmax(output, dim=-1)
+            action_probs = F.softmax(output, dim=-1) # remove in MLP for experts
             action_distribution = Categorical(probs=action_probs)
             action = action_distribution.sample().cpu()
 
@@ -246,7 +227,7 @@ class BetaPolicy(torch.nn.Module):
 
 
 class SOCModelCategorical(nn.Module):
-    def __init__(self, obs_dim, action_space, hidden_size, option_dim, num_experts, moe_hidden_size, k):
+    def __init__(self, obs_dim, action_space, hidden_size, option_dim, num_experts, moe_hidden_size, k, batch_size):
         super(SOCModelCategorical, self).__init__()
         # Inter-Q Function Definitions
         self.inter_q_function_1 = InterQFunction(obs_dim, option_dim, hidden_size)
@@ -257,5 +238,5 @@ class SOCModelCategorical(nn.Module):
         self.intra_q_function_2 = IntraQFunction(obs_dim, action_space.n, option_dim, hidden_size)
 
         # Policy Definitions
-        self.intra_option_policy = IntraOptionPolicy(obs_dim, action_space.n, option_dim, hidden_size, num_experts, moe_hidden_size, k)
+        self.intra_option_policy = IntraOptionPolicy(obs_dim, action_space.n, option_dim, hidden_size, num_experts, moe_hidden_size, k, batch_size)
         self.beta_policy = BetaPolicy(obs_dim, option_dim, hidden_size)

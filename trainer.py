@@ -6,7 +6,6 @@ import gym
 
 def train(args, agent, env, test_env, replay_buffer):
     state, ep_reward, ep_len = env.reset(), 0, 0
-
     # Sample initial option for SOC
     if args.model_type == "SOC":
         agent.current_option = agent.get_option(state, agent.get_epsilon())
@@ -23,7 +22,7 @@ def train(args, agent, env, test_env, replay_buffer):
         else:
             if args.model_type == "SOC":
                 agent.current_option = agent.get_option(state, agent.get_epsilon())
-            action, _ = agent.get_action(agent.current_option, state,  deterministic=True)
+            action = env.action_space.sample()  # replace with numpy sample
 
         next_state, reward, done, _ = env.step(action)
         if args.visualize:

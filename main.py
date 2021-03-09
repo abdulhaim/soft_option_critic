@@ -20,25 +20,25 @@ def main(args):
     log = set_log(args)
     tb_writer = TensorBoardLogger(logdir="./logs_tensorboard/", run_name=args.log_name + time.ctime())
 
-    from gym_env import make_envs
-    env = make_envs(args.env_name, args)
-    test_env = make_envs(args.env_name, args)
-    # import gym
-    # env = gym.make("CartPole-v1")
-    # test_env = gym.make("CartPole-v1")
-    # env.max_episode_steps = 200
-    # test_env.max_episode_steps = 200
+    # from gym_env import make_envs
+    # env = make_envs(args.env_name, args)
+    # test_env = make_envs(args.env_name, args)
+    import gym
+    env = gym.make("CartPole-v1")
+    test_env = gym.make("CartPole-v1")
+    env.max_episode_steps = 200
+    test_env.max_episode_steps = 200
 
     # Set seeds
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
-    #
-    # env.seed(args.seed)
-    # env.action_space.seed(args.seed)
-    #
-    # test_env.seed(args.seed)
-    # test_env.action_space.seed(args.seed)
+
+    env.seed(args.seed)
+    env.action_space.seed(args.seed)
+
+    test_env.seed(args.seed)
+    test_env.action_space.seed(args.seed)
 
     if device == torch.device("cuda"):
         torch.backends.cudnn.deterministic = True

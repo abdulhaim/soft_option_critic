@@ -7,7 +7,7 @@ class MLP(nn.Module):
         self.fc1 = nn.Linear(input_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, output_size)
         self.relu = nn.ReLU()
-        self.log_soft = nn.LogSoftmax(1)
+        self.log_soft = nn.LogSoftmax(1) #  TODO: why? if domain is discrete, include logsoft??? but not for continous?
 
     def forward(self, x):
         out = self.fc1(x)
