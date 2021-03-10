@@ -40,7 +40,7 @@ class SoftOptionCritic(nn.Module):
                 self.model = SOCModelCategorical(self.obs_dim, self.action_space.n, args.hidden_size, self.option_num)
             else:
                 from algorithms.soc.categorical_model import SOCModelCategorical
-                self.model = SOCModelCategorical(self.obs_dim, self.action_space, args.hidden_size, self.option_num, args.num_experts, args.moe_hidden_size, args.top_k, self.args.batch_size)
+                self.model = SOCModelCategorical(self.obs_dim, self.action_space, args.hidden_size, self.option_num, args.num_experts, args.moe_hidden_size, args.top_k, self.args.batch_size, self.args.num_tasks)
 
         else:
             self.action_dim = action_space.shape[0]
@@ -110,7 +110,7 @@ class SoftOptionCritic(nn.Module):
         if gradient:
             termination = torch.gather(termination, 1, option_indices).squeeze(-1)
         else:
-            termination = termination[option_indices].detach()
+            termination = torch.gather(termination, 1, torch.tensor(option_indices).unsqueeze(1)).squeeze(-1)
         option_termination = Bernoulli(termination).sample()
         return termination, option_termination == 1
 
@@ -119,12 +119,12 @@ class SoftOptionCritic(nn.Module):
                                                       deterministic=deterministic, with_logprob=with_logprob)
 
         if isinstance(self.action_space, gym.spaces.Discrete):
-            return action.numpy()[0], logp
+            return action.numpy(), logp
         else:
             option_indices = torch.tensor(option_indices, dtype=torch.long).unsqueeze(-1)
             action = action.squeeze(-1)
             action = torch.gather(action, 0, option_indices).squeeze(-1)
-            return np.array([action.detach().cpu()]), logp
+            return np.array(action.detach().cpu()), logp
 
     def compute_loss_beta(self, next_state, option_indices, beta_prob, done):
         # Computing Inter Q Values for Advantage

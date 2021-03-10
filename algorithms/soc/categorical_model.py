@@ -27,8 +27,8 @@ class InterQFunction(torch.nn.Module):
         )
 
     def forward(self, obs, gradient=True):
-        # if len(obs.shape) == 1:
-        #     obs = obs.unsqueeze(-1)
+        if len(obs.shape) == 1:
+            obs = obs.unsqueeze(-1)
         q = self.q(obs)
         return torch.squeeze(q, -1)  # Critical to ensure q has right shape.
 
@@ -66,13 +66,14 @@ class IntraOptionPolicy(torch.nn.Module):
     Output: number of actions
     """
 
-    def __init__(self, obs_dim, act_dim, option_dim, hidden_size, num_experts, moe_hidden_size, k, batch_size):
+    def __init__(self, obs_dim, act_dim, option_dim, hidden_size, num_experts, moe_hidden_size, k, batch_size, num_tasks):
         super(IntraOptionPolicy, self).__init__()
 
         self.num_experts = num_experts
         self.moe_hidden_size = moe_hidden_size
         self.k = k
         self.batch_size = batch_size
+        self.num_tasks = num_tasks
 
         # instantiate experts
         self.experts = nn.ModuleList(
@@ -147,20 +148,15 @@ class IntraOptionPolicy(torch.nn.Module):
 
     def noisy_top_k_gating(self, obs, option, deterministic, noisy_gating=True):
         # choosing which experts to use via logits based on observation
-        if deterministic:
-            obs = obs.unsqueeze(0)
-            logits = obs @ self.w_gate[option, :, :]
+        logits = []
+        for i in range(option.shape[0]):
+            option_element = option[i]
+            obs_element = obs[i]
+            obs_element = obs_element.squeeze(0)
+            logit = obs_element.unsqueeze(0) @ self.w_gate[option_element, :, :].squeeze(0)
+            logits.append(logit)
 
-        else:
-            logits = []
-            for i in range(option.shape[0]):
-                option_element = option[i]
-                obs_element = obs[i]
-                obs_element = obs_element.squeeze(0)
-                logit = obs_element @ self.w_gate[option_element, :, :]
-                logits.append(logit)
-
-            logits = torch.cat(logits, axis=0)
+        logits = torch.cat(logits, axis=0)
 
         # choose top experts based on logits
         top_logits, top_indices = logits.topk(min(self.k + 1, self.num_experts), dim=1)
@@ -170,7 +166,7 @@ class IntraOptionPolicy(torch.nn.Module):
         zeros = torch.zeros_like(logits, requires_grad=True)
         gates = zeros.scatter(1, top_k_indices, top_k_gates)
         if deterministic:
-            assert gates.shape == (1, self.num_experts)
+            assert gates.shape == (self.num_tasks, self.num_experts)
         else:
             assert gates.shape == (self.batch_size, self.num_experts)
 
@@ -181,13 +177,14 @@ class IntraOptionPolicy(torch.nn.Module):
         gates, load = self.noisy_top_k_gating(obs, option, deterministic)
 
         dispatcher = SparseDispatcher(self.num_experts, gates, option)
-        if deterministic:
-            obs = obs.unsqueeze(0)
         expert_inputs = dispatcher.dispatch(obs)
+        # print(len(expert_inputs))
         expert_outputs = [self.experts[i](expert_inputs[i]) for i in range(self.num_experts)]
 
         output = dispatcher.combine(expert_outputs)
-
+        # print("OBS", obs.shape)
+        # print("FINAL", output.shape)
+        # print("EXPERT OUTOUTS ", len(expert_outputs))
         if deterministic:
             # Only used for evaluating policy at test time.
             action = torch.argmax(output, dim=-1)
@@ -222,12 +219,14 @@ class BetaPolicy(torch.nn.Module):
             nn.Linear(hidden_size, option_dim))
 
     def forward(self, inputs, gradient=True):
+        if len(inputs.shape) == 1:
+            inputs = inputs.unsqueeze(-1)
         x = self.net(inputs)
         return torch.sigmoid(x)
 
 
 class SOCModelCategorical(nn.Module):
-    def __init__(self, obs_dim, action_space, hidden_size, option_dim, num_experts, moe_hidden_size, k, batch_size):
+    def __init__(self, obs_dim, action_space, hidden_size, option_dim, num_experts, moe_hidden_size, k, batch_size, num_tasks):
         super(SOCModelCategorical, self).__init__()
         # Inter-Q Function Definitions
         self.inter_q_function_1 = InterQFunction(obs_dim, option_dim, hidden_size)
@@ -238,5 +237,5 @@ class SOCModelCategorical(nn.Module):
         self.intra_q_function_2 = IntraQFunction(obs_dim, action_space.n, option_dim, hidden_size)
 
         # Policy Definitions
-        self.intra_option_policy = IntraOptionPolicy(obs_dim, action_space.n, option_dim, hidden_size, num_experts, moe_hidden_size, k, batch_size)
+        self.intra_option_policy = IntraOptionPolicy(obs_dim, action_space.n, option_dim, hidden_size, num_experts, moe_hidden_size, k, batch_size, num_tasks)
         self.beta_policy = BetaPolicy(obs_dim, option_dim, hidden_size)

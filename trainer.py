@@ -1,28 +1,28 @@
-
 import numpy as np
 from misc.torch_utils import tensor
 from misc.tester import test_evaluation
+import torch
 import gym
+
 
 def train(args, agent, env, test_env, replay_buffer):
     state, ep_reward, ep_len = env.reset(), 0, 0
     # Sample initial option for SOC
     if args.model_type == "SOC":
         agent.current_option = agent.get_option(state, agent.get_epsilon())
-
     for total_step_count in range(args.total_step_num):
         # Until start_steps have elapsed, randomly sample actions
         # from a uniform distribution for better exploration. Afterwards,
         # use the learned policy.
         if total_step_count > args.update_after:
             if args.model_type == "SOC":
-                action, _ = agent.get_action(agent.current_option, state,  deterministic=True)
+                action, _ = agent.get_action(agent.current_option, state, deterministic=True)
             else:
                 action, _ = agent.get_action(state, deterministic=True)
         else:
             if args.model_type == "SOC":
                 agent.current_option = agent.get_option(state, agent.get_epsilon())
-            action = env.action_space.sample()  # replace with numpy sample
+            action = list(np.random.randint(env.action_space.n, size=args.num_tasks))
 
         next_state, reward, done, _ = env.step(action)
         if args.visualize:
@@ -30,14 +30,14 @@ def train(args, agent, env, test_env, replay_buffer):
 
         ep_reward += reward
         ep_len += 1
-        d = False if ep_len == env.max_episode_steps else done
+        # find indices where done is True
+        d = torch.zeros(args.num_tasks) == 0 if ep_len == env.max_episode_steps else done
         # Store experience to replay buffer
         if args.model_type == "SOC":
-            import gym
             if not isinstance(agent.action_space, gym.spaces.Discrete):
                 action = action[0]
-
-            replay_buffer.store(state, agent.current_option, action, reward, next_state, d)
+            for i in range(args.num_tasks):
+                replay_buffer.store(state[i], agent.current_option[i], action[i], reward[i], next_state[i], d[i])
             agent.current_sample = (state, agent.current_option, action, reward, next_state, done)
         else:
             if not isinstance(agent.action_space, gym.spaces.Discrete):
@@ -45,30 +45,38 @@ def train(args, agent, env, test_env, replay_buffer):
 
             replay_buffer.store(state, action, reward, next_state, d)
 
-        agent.current_sample = (np.expand_dims(state, 0), np.array([action]), reward, np.expand_dims(next_state, 0), done)
-
         if args.model_type == "SOC":
             beta_prob, beta = agent.predict_option_termination(tensor(next_state), agent.current_option)
             # If term is True, then sample next option
-            if beta:
-                agent.current_option = agent.get_option(tensor(next_state), agent.get_epsilon())
+            option = agent.get_option(torch.tensor(next_state), agent.get_epsilon())
+            agent.current_option = torch.where(beta == True, torch.tensor(option), torch.tensor(agent.current_option))
 
         # For next timestep
         state = next_state
         # End of trajectory handling
-        if d or (ep_len == env.max_episode_steps):
+        if len((d == True).nonzero()[0]) != 0:
+            for i in (d == True).nonzero()[0]:
+                agent.log[args.log_name].info("Train Returns: {:.3f} at iteration {} for Env {}".format(
+                    ep_reward[i], total_step_count, i))
+                ep_reward[i] = 0
+                ep_len = 0
+
+        if ep_len == env.max_episode_steps:
             # Logging Training Returns
-            agent.log[args.log_name].info("Train Returns: {:.3f} at iteration {}".format(
-                ep_reward, total_step_count))
-            agent.tb_writer.log_data("episodic_reward", total_step_count, ep_reward)
+            for i in range(args.num_tasks):
+                agent.log[args.log_name].info("Train Returns: {:.3f} at iteration {} for Env {}".format(
+                    ep_reward[i], total_step_count, i))
+                agent.tb_writer.log_data("episodic_reward_" + str(i), total_step_count, ep_reward[i])
+                ep_reward[i] = 0
+                ep_len = 0
 
-            # Logging Testing Returns
-            test_evaluation(args, agent, test_env, step_count=total_step_count)
+                # Logging Testing Returns
+                # test_evaluation(args, agent, test_env, step_count=total_step_count)
 
-            state, ep_reward, ep_len = env.reset(), 0, 0
-            if args.model_type == "SOC":
-                agent.current_option = agent.get_option(state, agent.get_epsilon())
-            agent.episodes += 1
+        if args.model_type == "SOC":
+            option = agent.get_option(state, agent.get_epsilon())
+            agent.current_option = torch.where(torch.tensor(d) == True, torch.tensor(option),
+                                               torch.tensor(agent.current_option))
 
         # Update handling
         if total_step_count >= args.update_after and total_step_count % args.update_every == 0 and total_step_count > args.update_every:
