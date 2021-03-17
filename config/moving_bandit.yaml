@@ -5,8 +5,8 @@
 env_name: MovementBandits-v0
 lr: 0.001
 batch_size: 100
-exp_name: SAC_bandit_1
-model_type: SAC
+exp_name: SOC_bandit_1
+model_type: SOC
 task_name: MovementBandits-v0
 test_task_name: MovementBandits-v0
 seed: 1

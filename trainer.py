@@ -37,7 +37,7 @@ def train(args, agent, env, test_env, replay_buffer):
             if not isinstance(agent.action_space, gym.spaces.Discrete):
                 action = action[0]
             for i in range(args.num_tasks):
-                replay_buffer.store(state[i], agent.current_option[i], action[i], reward[i], next_state[i], d[i])
+                replay_buffer.store(state[i], agent.current_option[i], action[i], reward[i], next_state[i], d[i], task_num=i)
             agent.current_sample = (state, agent.current_option, action, reward, next_state, done)
         else:
             if not isinstance(agent.action_space, gym.spaces.Discrete):
@@ -56,10 +56,11 @@ def train(args, agent, env, test_env, replay_buffer):
         state = next_state
         # End of trajectory handling
         if len((d == True).nonzero()[0]) != 0:
-            for i in (d == True).nonzero()[0]:
+            for i in (d == True).nonzero().numpy():
+                index = i[0]
                 agent.log[args.log_name].info("Train Returns: {:.3f} at iteration {} for Env {}".format(
-                    ep_reward[i], total_step_count, i))
-                ep_reward[i] = 0
+                    ep_reward[index], total_step_count, index))
+                ep_reward[index] = 0
                 ep_len = 0
 
         if ep_len == env.max_episode_steps:

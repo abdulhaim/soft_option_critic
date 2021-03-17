@@ -13,6 +13,7 @@ from torch.distributions import Bernoulli
 from misc.torch_utils import tensor
 import torch.nn.functional as F
 from misc.torch_utils import convert_onehot
+from misc.pc_grad import PCGrad
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.autograd.set_detect_anomaly(True)
@@ -40,7 +41,9 @@ class SoftOptionCritic(nn.Module):
                 self.model = SOCModelCategorical(self.obs_dim, self.action_space.n, args.hidden_size, self.option_num)
             else:
                 from algorithms.soc.categorical_model import SOCModelCategorical
-                self.model = SOCModelCategorical(self.obs_dim, self.action_space, args.hidden_size, self.option_num, args.num_experts, args.moe_hidden_size, args.top_k, self.args.batch_size, self.args.num_tasks)
+                self.model = SOCModelCategorical(self.obs_dim, self.action_space, args.hidden_size, self.option_num,
+                                                 args.num_experts, args.moe_hidden_size, args.top_k,
+                                                 self.args.batch_size, self.args.num_tasks)
 
         else:
             self.action_dim = action_space.shape[0]
@@ -63,10 +66,10 @@ class SoftOptionCritic(nn.Module):
         self.intra_policy_params = itertools.chain(self.model.intra_option_policy.parameters())
         self.beta_params = itertools.chain(self.model.beta_policy.parameters())
 
-        self.inter_q_function_optim = Adam(self.q_params_inter, lr=args.lr)
-        self.intra_q_function_optim = Adam(self.q_params_intra, lr=args.lr)
-        self.intra_policy_optim = Adam(self.intra_policy_params, lr=args.lr)
-        self.beta_optim = Adam(self.beta_params, lr=args.lr)
+        self.inter_q_function_optim = PCGrad(Adam(self.q_params_inter, lr=args.lr))
+        self.intra_q_function_optim = PCGrad(Adam(self.q_params_intra, lr=args.lr))
+        self.intra_policy_optim = PCGrad(Adam(self.intra_policy_params, lr=args.lr))
+        self.beta_optim = PCGrad(Adam(self.beta_params, lr=args.lr))
 
         self.iteration = 0
         self.test_iteration = 0
@@ -282,44 +285,63 @@ class SoftOptionCritic(nn.Module):
         return loss_intra_pi, current_actions, logp
 
     def update_loss_soc(self, data):
-        state, option, action, reward, next_state, done = data['state'], data['option'], data['action'], data['reward'], data['next_state'], data['done']
 
-        reward = reward.unsqueeze(-1)
-        done = done.unsqueeze(-1)
+        task_loss_intra_q, task_loss_intra_pi, task_loss_inter_q, task_loss_beta = [], [], [], []
 
-        one_hot_option = torch.tensor(convert_onehot(option, self.args.option_num), dtype=torch.float32)
-        option_indices = torch.LongTensor(option.cpu().numpy().flatten().astype(int)).unsqueeze(-1).to(device)
+        for i in range(self.args.num_tasks):
+            state, option, action, reward, next_state, done = data[i]['state'], data[i]['option'], data[i]['action'], \
+                                                              data[i]['reward'], data[i]['next_state'], data[i]['done']
 
-        loss_intra_q, beta_prob = self.compute_loss_intra_q(state, action, one_hot_option, option_indices, next_state, reward, done)
+            reward = reward.unsqueeze(-1)
+            done = done.unsqueeze(-1)
+
+            one_hot_option = torch.tensor(convert_onehot(option, self.args.option_num), dtype=torch.float32)
+            option_indices = torch.LongTensor(option.cpu().numpy().flatten().astype(int)).unsqueeze(-1).to(device)
+
+            # Calculating Intra-Q Loss
+            loss_intra_q, beta_prob = self.compute_loss_intra_q(state, action, one_hot_option, option_indices,
+                                                                next_state, reward, done)
+            task_loss_intra_q.append(loss_intra_q)
+
+            # Calculating Intra-Policy Loss
+            loss_intra_pi, current_actions, logp = self.compute_loss_intra_policy(state, option_indices, one_hot_option)
+            task_loss_intra_pi.append(loss_intra_pi)
+
+            # Calculating Inter-Q Policy Loss
+            loss_inter_q = self.compute_loss_inter(state, option_indices, one_hot_option, current_actions, logp)
+            task_loss_inter_q.append(loss_inter_q)
+
+            # Calculating Beta Loss
+            loss_beta = self.compute_loss_beta(next_state, option_indices, beta_prob, done)
+            task_loss_beta.append(loss_beta)
+
+        #  Intra-Q Update
         self.intra_q_function_optim.zero_grad()
-        loss_intra_q.backward()
+        self.intra_q_function_optim.pc_backward(task_loss_intra_q)
         torch.nn.utils.clip_grad_norm_(self.q_params_intra, self.args.max_grad_clip)
         self.intra_q_function_optim.step()
-        self.tb_writer.log_data("intra_q_function_loss", self.iteration, loss_intra_q.item())
+        self.tb_writer.log_data("intra_q_function_loss", self.iteration, torch.mean(torch.stack(task_loss_intra_q)))
 
-        # Updating Intra-Policy
-        loss_intra_pi, current_actions, logp = self.compute_loss_intra_policy(state, option_indices, one_hot_option)
+        #  Intra-Policy Update
         self.intra_policy_optim.zero_grad()
-        loss_intra_pi.backward()
+        self.intra_policy_optim.pc_backward(task_loss_intra_pi)
         torch.nn.utils.clip_grad_norm_(self.intra_policy_params, self.args.max_grad_clip)
         self.intra_policy_optim.step()
-        self.tb_writer.log_data("intra_q_policy_loss", self.iteration, loss_intra_pi.item())
+        self.tb_writer.log_data("intra_q_policy_loss", self.iteration, torch.mean(torch.stack(task_loss_intra_pi)))
 
-        # Updating Inter-Q
-        loss_inter_q = self.compute_loss_inter(state, option_indices, one_hot_option, current_actions, logp)
+        #  Inter-Q Update
         self.inter_q_function_optim.zero_grad()
-        loss_inter_q.backward()
+        self.inter_q_function_optim.pc_backward(task_loss_inter_q)
         torch.nn.utils.clip_grad_norm_(self.q_params_inter, self.args.max_grad_clip)
         self.inter_q_function_optim.step()
-        self.tb_writer.log_data("inter_q_function_loss", self.iteration, loss_inter_q.item())
+        self.tb_writer.log_data("inter_q_function_loss", self.iteration, torch.mean(torch.stack(task_loss_inter_q)))
 
-        # Updating Beta-Policy
-        loss_beta = self.compute_loss_beta(next_state, option_indices, beta_prob, done)
+        #  Beta-Policy Update
         self.beta_optim.zero_grad()
-        loss_beta.backward()
+        self.beta_optim.pc_backward(task_loss_beta)
         torch.nn.utils.clip_grad_norm_(self.beta_params, self.args.max_grad_clip)
         self.beta_optim.step()
-        self.tb_writer.log_data("beta_policy_loss", self.iteration, loss_beta.item())
+        self.tb_writer.log_data("beta_policy_loss", self.iteration, torch.mean(torch.stack(task_loss_beta)))
         self.iteration += 1
 
         with torch.no_grad():
@@ -350,4 +372,3 @@ class SoftOptionCritic(nn.Module):
                 # params, as opposed to "mul" and "add", which would make new tensors.
                 p_targ.data.mul_(self.args.polyak)
                 p_targ.data.add_((1 - self.args.polyak) * p.data)
-

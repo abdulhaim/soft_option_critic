@@ -10,6 +10,7 @@ from trainer import train
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 def main(args):
     # Create directories
     if not os.path.exists("./logs/"):
@@ -27,22 +28,10 @@ def main(args):
     env.max_episode_steps = 50
     test_env.max_episode_steps = 50
 
-    # import gym
-    # env = gym.make("CartPole-v1")
-    # test_env = gym.make("CartPole-v1")
-    # env.max_episode_steps = 500
-    # test_env.max_episode_steps = 500
-
     # Set seeds
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
-
-    # env.seed(args.seed)
-    # env.action_space.seed(args.seed)
-    #
-    # test_env.seed(args.seed)
-    # test_env.action_space.seed(args.seed)
 
     if device == torch.device("cuda"):
         torch.backends.cudnn.deterministic = True
@@ -60,7 +49,7 @@ def main(args):
             args=args,
             tb_writer=tb_writer,
             log=log)
-        replay_buffer = ReplayBufferSOC(agent.obs_dim, agent.action_dim, size=args.buffer_size)
+        replay_buffer = ReplayBufferSOC(agent.obs_dim, agent.action_dim, num_tasks=args.num_tasks, size=args.buffer_size)
 
     else:
         from algorithms.sac.agent import SoftActorCritic
