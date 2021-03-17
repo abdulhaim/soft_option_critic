@@ -56,10 +56,11 @@ def train(args, agent, env, test_env, replay_buffer):
         state = next_state
         # End of trajectory handling
         if len((d == True).nonzero()[0]) != 0:
-            for i in (d == True).nonzero()[0]:
+            for i in (d == True).nonzero().numpy():
+                item = i[0]
                 agent.log[args.log_name].info("Train Returns: {:.3f} at iteration {} for Env {}".format(
-                    ep_reward[i], total_step_count, i))
-                ep_reward[i] = 0
+                    ep_reward[item], total_step_count, item))
+                ep_reward[item] = 0
                 ep_len = 0
 
         if ep_len == env.max_episode_steps:
