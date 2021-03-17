@@ -10,4 +10,4 @@ export CUDA_VISIBLE_DEVICES=-1
 
 # Begin experiment
 python3 main.py \
---config discrete_soc.yaml
+--config taxi.yaml

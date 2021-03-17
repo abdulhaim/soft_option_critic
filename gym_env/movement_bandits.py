@@ -19,8 +19,9 @@ class MovementBandits(gym.Env):
         'video.frames_per_second': 50
     }
 
-    def __init__(self, add_action_in_obs=False):
+    def __init__(self, add_action_in_obs=False, task_num=0):
         # new action space = [left, right]
+        self.task_num = task_num
         self.action_space = spaces.Discrete(5)
 
         if add_action_in_obs:

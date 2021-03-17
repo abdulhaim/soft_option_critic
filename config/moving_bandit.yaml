@@ -5,8 +5,8 @@
 env_name: MovementBandits-v0
 lr: 0.001
 batch_size: 100
-exp_name: SOC_taxi_1
-model_type: SOC
+exp_name: SAC_bandit_1
+model_type: SAC
 task_name: MovementBandits-v0
 test_task_name: MovementBandits-v0
 seed: 1
@@ -17,7 +17,5 @@ update_after: 1000
 eps_decay: 1
 load_model: False
 visualize: False
-option_dim: 2
 option_num: 2
-
 num_tasks: 2

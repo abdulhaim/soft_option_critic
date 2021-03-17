@@ -120,6 +120,7 @@ class SoftOptionCritic(nn.Module):
 
         if isinstance(self.action_space, gym.spaces.Discrete):
             return action.numpy(), logp
+
         else:
             option_indices = torch.tensor(option_indices, dtype=torch.long).unsqueeze(-1)
             action = action.squeeze(-1)
@@ -289,9 +290,7 @@ class SoftOptionCritic(nn.Module):
         one_hot_option = torch.tensor(convert_onehot(option, self.args.option_num), dtype=torch.float32)
         option_indices = torch.LongTensor(option.cpu().numpy().flatten().astype(int)).unsqueeze(-1).to(device)
 
-        # Updating Intra-Q
         loss_intra_q, beta_prob = self.compute_loss_intra_q(state, action, one_hot_option, option_indices, next_state, reward, done)
-        loss_intra_pi, current_actions, logp = self.compute_loss_intra_policy(state, option_indices, one_hot_option)
         self.intra_q_function_optim.zero_grad()
         loss_intra_q.backward()
         torch.nn.utils.clip_grad_norm_(self.q_params_intra, self.args.max_grad_clip)
@@ -299,6 +298,7 @@ class SoftOptionCritic(nn.Module):
         self.tb_writer.log_data("intra_q_function_loss", self.iteration, loss_intra_q.item())
 
         # Updating Intra-Policy
+        loss_intra_pi, current_actions, logp = self.compute_loss_intra_policy(state, option_indices, one_hot_option)
         self.intra_policy_optim.zero_grad()
         loss_intra_pi.backward()
         torch.nn.utils.clip_grad_norm_(self.intra_policy_params, self.args.max_grad_clip)

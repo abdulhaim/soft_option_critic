@@ -13,5 +13,5 @@ def make_envs(env_name, args):
 register(
     id='MovementBandits-v0',
     entry_point='gym_env.movement_bandits:MovementBandits',
-    max_episode_steps=50,
+    max_episode_steps=50
 )

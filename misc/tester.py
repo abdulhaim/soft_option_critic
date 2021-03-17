@@ -4,7 +4,7 @@ import torch
 cuda_avail = torch.cuda.is_available()
 device = torch.device("cuda" if cuda_avail else "cpu")
 
-def test_evaluation(args, agent, env, num_test_episodes=10, log_name="agent", step_count=None):
+def test_evaluation(args, agent, env, num_test_episodes=10, log_name="agent", step_count=None, task_num=0):
     return_total = 0
 
     for j in range(num_test_episodes):
@@ -30,4 +30,4 @@ def test_evaluation(args, agent, env, num_test_episodes=10, log_name="agent", st
 
     return_total /= num_test_episodes
     agent.tb_writer.log_data(log_name + "_test_reward", step_count, return_total)
-    agent.log[args.log_name].info("Test Reward: {:.3f} for {} at iteration {}".format(return_total, log_name, step_count))
+    agent.log[args.log_name].info("Test Reward: {:.3f} for {} at iteration {} for task {}".format(return_total, log_name, step_count, task_num))

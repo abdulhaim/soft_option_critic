@@ -146,7 +146,7 @@ class IntraOptionPolicy(torch.nn.Module):
         prob = torch.where(is_in, prob_if_in, prob_if_out)
         return prob
 
-    def noisy_top_k_gating(self, obs, option, deterministic, noisy_gating=True):
+    def noisy_top_k_gating(self, obs, option, deterministic, noisy_gating=True, noise_epsilon=1e-2):
         # choosing which experts to use via logits based on observation
         logits = []
         for i in range(option.shape[0]):
@@ -154,7 +154,14 @@ class IntraOptionPolicy(torch.nn.Module):
             obs_element = obs[i]
             obs_element = obs_element.squeeze(0)
             logit = obs_element.unsqueeze(0) @ self.w_gate[option_element, :, :].squeeze(0)
-            logits.append(logit)
+
+            if noisy_gating:
+                raw_noise_stddev =  obs_element.unsqueeze(0) @ self.w_gate[option_element, :, :].squeeze(0)
+                noise_stddev = ((self.softplus(raw_noise_stddev) + noise_epsilon) * deterministic)
+                noisy_logit = logit + (torch.randn_like(logit) * noise_stddev)
+                logits.append(noisy_logit)
+            else:
+                logits.append(logit)
 
         logits = torch.cat(logits, axis=0)
 
@@ -182,9 +189,6 @@ class IntraOptionPolicy(torch.nn.Module):
         expert_outputs = [self.experts[i](expert_inputs[i]) for i in range(self.num_experts)]
 
         output = dispatcher.combine(expert_outputs)
-        # print("OBS", obs.shape)
-        # print("FINAL", output.shape)
-        # print("EXPERT OUTOUTS ", len(expert_outputs))
         if deterministic:
             # Only used for evaluating policy at test time.
             action = torch.argmax(output, dim=-1)

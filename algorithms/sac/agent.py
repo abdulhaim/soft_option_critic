@@ -92,7 +92,7 @@ class SoftActorCritic(nn.Module):
 
         # MSE loss against Bellman backup
         if isinstance(self.action_space,
-                      gym.spaces.Discrete) and not self.args.mer:
+                      gym.spaces.Discrete):
             assert backup.shape == (self.args.batch_size, 1)
 
         if isinstance(self.action_space, gym.spaces.Discrete):

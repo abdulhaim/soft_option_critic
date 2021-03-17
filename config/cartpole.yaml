@@ -19,3 +19,5 @@ load_model: False
 visualize: False
 option_dim: 2
 option_num: 2
+
+num_tasks: 1

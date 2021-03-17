@@ -43,7 +43,8 @@ def train(args, agent, env, test_env, replay_buffer):
             if not isinstance(agent.action_space, gym.spaces.Discrete):
                 action = action[0]
 
-            replay_buffer.store(state, action, reward, next_state, d)
+            for i in range(args.num_tasks):
+                replay_buffer.store(state[i], action[i], reward[i], next_state[i], d[i])
 
         if args.model_type == "SOC":
             beta_prob, beta = agent.predict_option_termination(tensor(next_state), agent.current_option)
@@ -71,7 +72,7 @@ def train(args, agent, env, test_env, replay_buffer):
                 ep_len = 0
 
                 # Logging Testing Returns
-                # test_evaluation(args, agent, test_env, step_count=total_step_count)
+                # test_evaluation(args, agent, test_env, step_count=total_step_count, task_num=i)
 
         if args.model_type == "SOC":
             option = agent.get_option(state, agent.get_epsilon())

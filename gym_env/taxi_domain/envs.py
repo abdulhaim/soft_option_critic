@@ -26,7 +26,7 @@ except ImportError:
 
 def make_env(env_id, seed, rank):
     def _thunk():
-        env = gym.make(env_id)
+        env = gym.make(env_id,  task_num=rank)
         env.seed(seed + rank)
         return env
 

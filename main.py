@@ -24,8 +24,8 @@ def main(args):
     env = make_envs(args.env_name, args)
     test_env = make_envs(args.env_name, args)
 
-    env.max_episode_steps = 200
-    test_env.max_episode_steps = 200
+    env.max_episode_steps = 50
+    test_env.max_episode_steps = 50
 
     # import gym
     # env = gym.make("CartPole-v1")
